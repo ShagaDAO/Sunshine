@@ -1250,4 +1250,9 @@ namespace config {
 
     return 0;
   }
+
+  struct sunshine {
+      bool shaga_mode = true;  // default is enabled
+  } sunshine_state;
+
 }  // namespace config

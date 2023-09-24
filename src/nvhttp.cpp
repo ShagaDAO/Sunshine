@@ -32,6 +32,8 @@
 #include "uuid.h"
 #include "video.h"
 
+#include "src/shaga/shaga_payload_builder.h"
+
 using namespace std::literals;
 namespace nvhttp {
 

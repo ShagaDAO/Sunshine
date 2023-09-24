@@ -39,6 +39,8 @@
 #include "uuid.h"
 #include "version.h"
 
+#include "src/shaga/shaga_payload_builder.h"
+
 using namespace std::literals;
 
 namespace confighttp {
@@ -692,6 +694,20 @@ namespace confighttp {
   }
 
   void
+  getShagaPage(resp_https_t response, req_https_t request) {
+    if (!authenticate(response, request)) return; // Assuming you want authentication, remove if unnecessary
+
+    print_req(request); // Debugging - to print request info
+
+    std::string header = read_file(WEB_DIR "header.html");
+    std::string content = read_file(WEB_DIR "shaga.html");
+    SimpleWeb::CaseInsensitiveMultimap headers;
+    headers.emplace("Content-Type", "text/html; charset=utf-8");
+    response->write(header + content, headers);
+  }
+
+
+  void
   unpairAll(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) return;
 
@@ -757,6 +773,36 @@ namespace confighttp {
     server.resource["^/images/favicon.ico$"]["GET"] = getFaviconImage;
     server.resource["^/images/logo-sunshine-45.png$"]["GET"] = getSunshineLogoImage;
     server.resource["^/node_modules\\/.+$"]["GET"] = getNodeModules;
+    // Shaga
+    server.resource["^/shaga$"]["GET"] = getShagaPage;
+    server.resource["^/api/system_info$"]["GET"] = [](auto response, auto request) {
+      try {
+        // Build the payload using your existing buildPayload() function
+        SystemInfoPayload payload = buildPayload();
+
+        // Create a property tree object
+        pt::ptree pt;
+
+        // Populate the property tree with payload data
+        pt.put("ipAddress", payload.ipAddress);
+        pt.put("cpuName", payload.cpuName);
+        pt.put("gpuName", payload.gpuName);
+        pt.put("totalRamMB", payload.totalRamMB);
+        pt.put("firstValidMemoryType", payload.firstValidMemoryType);
+
+        // Serialize the property tree to a JSON string
+        std::ostringstream buf;
+        pt::write_json(buf, pt);
+
+        // Respond with the JSON payload
+        response->write(SimpleWeb::StatusCode::success_ok, buf.str());
+      }
+      catch (const std::exception &e) {
+        // Handle exceptions and respond with an error
+        response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
+      }
+    };
+    // Shaga
     server.config.reuse_address = true;
     server.config.address = "0.0.0.0"s;
     server.config.port = port_https;
