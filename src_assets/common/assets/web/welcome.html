@@ -5,6 +5,14 @@
       Before Getting Started, we need you to make a new username and password for accessing the Web UI.
     </p>
   </header>
+
+  <!-- Adding the important message -->
+  <div class="alert alert-warning">
+    <strong>Note:</strong> SUNSHINE WILL USE YOUR PASSWORD TO ENCRYPT YOUR SOLANA WALLET.
+    MAKE SURE TO WRITE THE PASSWORD DOWN OR EXPORT THE MNEMONICS.
+  </div>
+
+  <!-- Existing content -->
   <div class="alert alert-warning">
     The credentials below are needed to access Sunshine's Web UI.<br />
     Keep them safe, since <b>you will never see them again!</b>
@@ -87,6 +95,10 @@
             r.json().then((rj) => {
               if (rj.status.toString() === "true") {
                 this.success = true;
+
+                // Store the password temporarily in session storage
+                sessionStorage.setItem('tempPassword', this.passwordData.newPassword);
+
                 setTimeout(() => {
                   document.location.reload();
                 }, 5000);

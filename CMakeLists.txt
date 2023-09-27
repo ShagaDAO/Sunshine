@@ -126,6 +126,8 @@ set(UPNPC_BUILD_SAMPLE OFF CACHE BOOL "Don't build samples for miniupnpc")
 set(UPNPC_NO_INSTALL ON CACHE BOOL "Don't install any libraries build for miniupnpc")
 add_subdirectory(third-party/miniupnp/miniupnpc)
 include_directories(SYSTEM third-party/miniupnp/miniupnpc/include)
+#Shaga
+include_directories(${CMAKE_SOURCE_DIR}/third-party/nlohmann)
 
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
@@ -142,6 +144,10 @@ list(APPEND SUNSHINE_COMPILE_OPTIONS -Wall -Wno-sign-compare)
 
 # enable system tray, we will disable this later if we cannot find the required package config on linux
 set(SUNSHINE_TRAY 1)
+
+#Shaga
+find_package(CURL REQUIRED)
+
 
 if(WIN32)
     enable_language(RC)
@@ -562,6 +568,10 @@ set(SUNSHINE_TARGET_FILES
         third-party/SystemInfo/include/raminfo.h
         third-party/SystemInfo/include/raminfodelegate.h
         third-party/SystemInfo/include/systeminfo.h
+        src/shaga/store_encrypted.cpp
+        src/shaga/store_encrypted.cpp
+        src/shaga/store_encrypted.h
+        src/shaga/store_encrypted.h
         ${PLATFORM_TARGET_FILES})
 
 set_source_files_properties(src/upnp.cpp PROPERTIES COMPILE_FLAGS -Wno-pedantic)
@@ -610,6 +620,8 @@ set(FFMPEG_LIBRARIES
         ${FFMPEG_PLATFORM_LIBRARIES})
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+#Shaga
+include_directories(${CURL_INCLUDE_DIR})
 
 include_directories(
         SYSTEM

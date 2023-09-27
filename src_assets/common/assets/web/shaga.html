@@ -14,44 +14,35 @@
           margin-top: 20px;
       }
   </style>
-  <script src="path/to/tweetnacl.js"></script>
 </head>
 <body>
 <div class="container shaga-container">
+  <!-- Existing Sections -->
   <button id="fetchInfoBtn" class="btn btn-primary">Fetch System Info</button>
-  <div id="systemInfoDisplay" class="alert alert-light">
-    <!-- System information will be displayed here -->
+  <button id="createWalletBtn" class="btn btn-secondary">Create Wallet</button>
+  <div id="messageDisplay" class="alert alert-info"></div>
+  <div id="systemInfoDisplay" class="alert alert-light"></div>
+  <div id="walletDashboard" class="hidden">
+    <div id="walletInfo">
+      <h3>Wallet Information</h3>
+      <p id="walletAddress"></p>
+      <p id="walletBalance"></p>
+    </div>
+    <div id="earningsInfo">
+      <h3>Earnings</h3>
+    </div>
   </div>
+
+  <!-- New Sections -->
+  <div id="sessionControl"></div>
+  <div id="sessionInfo"></div>
+  <div id="earningsAndTransactions"></div>
+  <div id="reputationAndReviews"></div>
+  <div id="actions"></div>
+  <div id="additionalMonitoring"></div>
 </div>
 
-<script>
-  // Function to fetch system information
-  function fetchSystemInfo() {
-    fetch("https://localhost:47990/api/system_info", {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      }
-    })
-      .then(response => response.json())
-      .then(data => {
-        console.log('Success:', data);
-        let displayDiv = document.getElementById('systemInfoDisplay');
-        displayDiv.innerHTML = `
-        <p><strong>IP Address:</strong> ${data.ipAddress}</p>
-        <p><strong>CPU Name:</strong> ${data.cpuName}</p>
-        <p><strong>GPU Name:</strong> ${data.gpuName}</p>
-        <p><strong>Total RAM (MB):</strong> ${data.totalRamMB}</p>
-        <p><strong>First Valid Memory Type:</strong> ${data.firstValidMemoryType}</p>
-      `;
-      })
-      .catch((error) => {
-        console.error('Error:', error);
-      });
-  }
-
-  // Add an event listener to the button
-  document.getElementById('fetchInfoBtn').addEventListener('click', fetchSystemInfo);
-</script>
+<!-- Load Bundle.js at the end -->
+<script src="/libs/bundle.js"></script>
 </body>
 </html>

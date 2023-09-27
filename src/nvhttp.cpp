@@ -17,6 +17,14 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
+#include <queue>
+// Shaga
+#include <boost/beast/core.hpp>
+#include <boost/beast/websocket.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/bind/bind.hpp>
+
+
 
 // local includes
 #include "config.h"
@@ -32,7 +40,16 @@
 #include "uuid.h"
 #include "video.h"
 
-#include "src/shaga/shaga_payload_builder.h"
+
+#include <string>
+#include <locale>
+#include <codecvt>
+#include <curl/curl.h>
+
+
+
+
+long http_status_code; // Global to store the HTTP status code
 
 using namespace std::literals;
 namespace nvhttp {
@@ -107,6 +124,15 @@ namespace nvhttp {
   using https_server_t = SunshineHttpsServer;
   using http_server_t = SimpleWeb::Server<SimpleWeb::HTTP>;
 
+  /* TODO: improve code, shipping too fast for the hackathon = shitty code // Shaga
+  std::mutex session_mutex;
+  std::mutex connection_mutex;  // Mutex for thread safety
+  using WebSocketConnection = std::shared_ptr<boost::beast::websocket::stream<boost::asio::ip::tcp::socket>>;
+  WebSocketConnection serverToFrontendConnection;  // Single WebSocket connection for backend-frontend communication
+  // Assume you have a global io_context object
+  boost::asio::io_context io_context;
+  */
+
   struct conf_intern_t {
     std::string servercert;
     std::string pkey;
@@ -138,6 +164,42 @@ namespace nvhttp {
     } async_insert_pin;
   };
 
+  // TODO: Use something like this to enable multiple session requests by serving the first to pay on solana// Shaga
+  /*
+    struct pair_shaga_session_t {
+    struct {
+      std::string uniqueID;
+      std::string cert;
+    } client;
+
+    std::unique_ptr<crypto::aes_t> cipher_key;
+    std::vector<uint8_t> clienthash;
+
+    std::string serversecret;
+    std::string serverchallenge;
+
+    struct {
+      util::Either<
+        std::shared_ptr<typename SimpleWeb::ServerBase<SimpleWeb::HTTP>::Response>,
+        std::shared_ptr<typename SimpleWeb::ServerBase<SimpleWeb::HTTPS>::Response>>
+        response;
+      std::string salt;
+    } async_insert_pin;
+
+    std::string encryptedPin;
+    std::string publicKey;
+    bool isPinDecrypted = false;
+    std::string decryptedPin;
+    std::chrono::time_point<std::chrono::system_clock> lastUpdated;
+    bool locked;
+  };
+
+   std::unordered_map<std::string, pair_shaga_session_t> map_id_shaga_sess;
+   //std::priority_queue; TODO: maybe if shaga gets big we need priority queues for highly dense areas
+  */
+
+
+  // Shaga
   // uniqueID, session
   std::unordered_map<std::string, pair_session_t> map_id_sess;
   std::unordered_map<std::string, client_t> map_id_client;
@@ -298,6 +360,7 @@ namespace nvhttp {
     tree.put("root.plaincert", util::hex_vec(conf_intern.servercert, true));
     tree.put("root.<xmlattr>.status_code", 200);
   }
+
   void
   serverchallengeresp(pair_session_t &sess, pt::ptree &tree, const args_t &args) {
     auto encrypted_response = util::from_hex_vec(get_arg(args, "serverchallengeresp"), true);
@@ -449,6 +512,119 @@ namespace nvhttp {
 
     response->close_connection_after_response = true;
   }
+
+  //Shaga : started by using a webSocket, ended up using POSTs to frontend's Endpoint, saved old code in txt file
+  std::atomic<bool> sessionLocked = false;
+
+  size_t writeCallback(void* contents, size_t size, size_t nmemb, void *userp)
+  {
+    ((std::string*)userp)->append((char*)contents, size * nmemb);
+    return size * nmemb;
+  }
+
+  std::string postDataToFrontend(const std::string& encryptedPIN, const std::string& publicKey) {
+    CURL *curl;
+    CURLcode res;
+    std::string readBuffer;
+
+    curl = curl_easy_init();
+    if(curl) {
+      std::string postData = "{\"encryptedPIN\": \"" + encryptedPIN + "\", \"publicKey\": \"" + publicKey + "\"}";
+
+      struct curl_slist *headers = NULL;
+      headers = curl_slist_append(headers, "Content-Type: application/json");
+
+      curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+      curl_easy_setopt(curl, CURLOPT_URL, "http://localhost:3000/endpoint");
+      curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postData.c_str());
+      curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
+      curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+
+      res = curl_easy_perform(curl);
+
+      if(res != CURLE_OK) {
+        fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+        // Consider returning an error code or throw an exception here
+      }
+
+      curl_easy_cleanup(curl);
+      curl_slist_free_all(headers); // Don't forget to free the list again
+    }
+
+    // TODO: Process readBuffer to parse the JSON response and get the "decryptedPin"
+
+    return readBuffer;
+  }
+
+
+  template <class T>
+  void pairShaga(std::shared_ptr<safe::queue_t<crypto::x509_t>> &add_cert,
+    std::shared_ptr<typename SimpleWeb::ServerBase<T>::Response> response,
+    std::shared_ptr<typename SimpleWeb::ServerBase<T>::Request> request) {
+
+    print_req<T>(request);
+    pt::ptree tree;
+
+    auto fg = util::fail_guard([&]() {
+      std::ostringstream data;
+      pt::write_xml(data, tree);
+      response->write(data.str());
+      response->close_connection_after_response = true;
+    });
+
+    auto args = request->parse_query_string();
+
+    // Capture additional arguments
+    std::string encryptedPin = get_arg(args, "encryptedPin");
+    std::string publicKey = get_arg(args, "publicKey");
+
+    // Check for uniqueid
+    if (args.find("uniqueid"s) == std::end(args)) {
+      tree.put("root.<xmlattr>.status_code", 400);
+      tree.put("root.<xmlattr>.status_message", "Missing uniqueid parameter");
+      return;
+    }
+
+    auto uniqID = get_arg(args, "uniqueid");
+    auto sess_it = map_id_sess.find(uniqID);
+
+    pair_session_t sess;
+    sess.client.uniqueID = std::move(uniqID);
+    sess.client.cert = util::from_hex_vec(get_arg(args, "clientcert"), true);
+
+    auto ptr = map_id_sess.emplace(sess.client.uniqueID, std::move(sess)).first;
+    ptr->second.async_insert_pin.salt = std::move(get_arg(args, "salt"));
+
+    args_t::const_iterator it;
+    if (it = args.find("phrase"); it != std::end(args)) {
+      if (it->second == "getservercert"sv) {
+
+        // Fetch decryptedPin from the frontend
+        std::string decryptedPin = postDataToFrontend(encryptedPin, publicKey);
+
+        getservercert(ptr->second, tree, decryptedPin);
+      }
+      else if (it->second == "pairchallenge"sv) {
+        tree.put("root.paired", 1);
+        tree.put("root.<xmlattr>.status_code", 200);
+      }
+    }
+    else if (it = args.find("clientchallenge"); it != std::end(args)) {
+      clientchallenge(sess_it->second, tree, args);
+    }
+    else if (it = args.find("serverchallengeresp"); it != std::end(args)) {
+      serverchallengeresp(sess_it->second, tree, args);
+    }
+    else if (it = args.find("clientpairingsecret"); it != std::end(args)) {
+      clientpairingsecret(add_cert, sess_it->second, tree, args);
+    }
+    else {
+      tree.put("root.<xmlattr>.status_code", 404);
+      tree.put("root.<xmlattr>.status_message", "Invalid pairing request");
+    }
+  }
+
+  // Shaga
 
   template <class T>
   void
@@ -988,6 +1164,10 @@ namespace nvhttp {
       tree.put("root.<xmlattr>.query"s, req->path);
       tree.put("root.<xmlattr>.status_message"s, "The client is not authorized. Certificate verification failed."s);
     };
+    // Shaga
+    //https_server.resource["^/initWebSocket$"]["GET"] = onWebSocketOpen;
+    https_server.resource["^/pairShaga$"]["GET"] = [&add_cert](auto resp, auto req) { pairShaga<SimpleWeb::HTTPS>(add_cert, resp, req); };
+    //Shaga // TODO: MAKE /pairShaga MULTI-THREADED TO ALLOW MULTIPLE REQUESTS BUT ONLY SERVE THE ONE THAT PAID ON SOLANA FIRST
 
     https_server.default_resource["GET"] = not_found<SimpleWeb::HTTPS>;
     https_server.resource["^/serverinfo$"]["GET"] = serverinfo<SimpleWeb::HTTPS>;
@@ -1038,6 +1218,12 @@ namespace nvhttp {
 
     ssl.join();
     tcp.join();
+
+    /* // Shaga webSocket setup
+    std::thread io_thread([&]() {
+      io_context.run();
+    });
+    */
   }
 
   /**

@@ -3,6 +3,9 @@
 #include <vector>
 #include <stdexcept>
 #include <Winsock2.h>
+#include <iostream>
+#include <string>
+#include <curl/curl.h>
 
 #include "third-party/SystemInfo/include/cpuinfodelegate.h"
 #include "third-party/SystemInfo/include/raminfodelegate.h"
@@ -16,38 +19,32 @@ struct SystemInfoPayload {
   long long totalRamMB = 0;  // Initialized within the struct for safety.
 };
 
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+  ((std::string*)userp)->append((char*)contents, size * nmemb);
+  return size * nmemb;
+}
+
 std::string getLocalIPAddress() {
-  WSADATA wsaData;
-  if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-    throw std::runtime_error("WSAStartup failed.");
-  }
-  SOCKET sock = socket(AF_INET, SOCK_DGRAM, 0);
-  if (sock == INVALID_SOCKET) {
-    WSACleanup();
-    throw std::runtime_error("Socket error.");
-  }
-  const char* google_dns_server = "8.8.8.8";
-  int dns_port = 53;
-  sockaddr_in serv;
-  serv.sin_family = AF_INET;
-  serv.sin_addr.s_addr = inet_addr(google_dns_server);
-  serv.sin_port = htons(dns_port);
-  if (connect(sock, (const sockaddr*)&serv, sizeof(serv)) == SOCKET_ERROR) {
-    closesocket(sock);
-    WSACleanup();
-    throw std::runtime_error("Connection error.");
-  }
-  sockaddr_in name;
-  int namelen = sizeof(name);
-  getsockname(sock, (sockaddr*)&name, &namelen);
-  const char* p = inet_ntoa(name.sin_addr);
-  closesocket(sock);
-  WSACleanup();
-  if (p != nullptr) {
-    return std::string(p);  // Using 'p' directly here
+  CURL* curl;
+  CURLcode res;
+  std::string readBuffer;
+
+  curl = curl_easy_init();
+  if(curl) {
+    curl_easy_setopt(curl, CURLOPT_URL, "http://api.ipify.org");
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+    res = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+
+    if(res != CURLE_OK) {
+      throw std::runtime_error("curl_easy_perform() failed: " + std::string(curl_easy_strerror(res)));
+    }
   } else {
-    throw std::runtime_error("IP retrieval error.");
+    throw std::runtime_error("CURL initialization failed.");
   }
+
+  return readBuffer;
 }
 
 

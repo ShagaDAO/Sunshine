@@ -40,6 +40,8 @@
 #include "version.h"
 
 #include "src/shaga/shaga_payload_builder.h"
+#include "src/shaga/store_encrypted.h"
+#include <third-party/nlohmann-json/json.hpp>
 
 using namespace std::literals;
 
@@ -326,6 +328,40 @@ namespace confighttp {
       // do not return any file if the type is not in the map
     }
   }
+
+  //Shaga
+  void getJavaScriptLibs(resp_https_t response, req_https_t request) {
+    print_req(request);
+    fs::path webDirPath(WEB_DIR);
+    fs::path libsPath(webDirPath / "libs");
+
+    // .relative_path is needed to shed any leading slash that might exist in the request path
+    auto filePath = fs::weakly_canonical(webDirPath / fs::path(request->path).relative_path());
+
+    // Don't do anything if file does not exist or is outside the libs directory
+    if (!isChildPath(filePath, libsPath)) {
+      BOOST_LOG(warning) << "Someone requested a path " << filePath << " that is outside the libs folder";
+      response->write(SimpleWeb::StatusCode::client_error_bad_request, "Bad Request");
+      return;
+    }
+
+    if (!fs::exists(filePath)) {
+      response->write(SimpleWeb::StatusCode::client_error_not_found);
+      return;
+    }
+
+    auto relPath = fs::relative(filePath, webDirPath);
+    auto mimeType = mime_types.find(relPath.extension().string().substr(1));
+
+    if (mimeType != mime_types.end()) {
+      SimpleWeb::CaseInsensitiveMultimap headers;
+      headers.emplace("Content-Type", mimeType->second);
+      std::ifstream in(filePath.string(), std::ios::binary);
+      response->write(SimpleWeb::StatusCode::success_ok, in, headers);
+    }
+  }
+
+  //Shaga
 
   void
   getApps(resp_https_t response, req_https_t request) {
@@ -694,20 +730,6 @@ namespace confighttp {
   }
 
   void
-  getShagaPage(resp_https_t response, req_https_t request) {
-    if (!authenticate(response, request)) return; // Assuming you want authentication, remove if unnecessary
-
-    print_req(request); // Debugging - to print request info
-
-    std::string header = read_file(WEB_DIR "header.html");
-    std::string content = read_file(WEB_DIR "shaga.html");
-    SimpleWeb::CaseInsensitiveMultimap headers;
-    headers.emplace("Content-Type", "text/html; charset=utf-8");
-    response->write(header + content, headers);
-  }
-
-
-  void
   unpairAll(resp_https_t response, req_https_t request) {
     if (!authenticate(response, request)) return;
 
@@ -743,6 +765,150 @@ namespace confighttp {
   }
 
   void
+  getShagaPage(resp_https_t response, req_https_t request) {
+    if (!authenticate(response, request)) return; // Assuming you want authentication, remove if unnecessary
+
+    print_req(request); // Debugging - to print request info
+
+    std::string header = read_file(WEB_DIR "header.html");
+    std::string content = read_file(WEB_DIR "shaga.html");
+    SimpleWeb::CaseInsensitiveMultimap headers;
+    headers.emplace("Content-Type", "text/html; charset=utf-8");
+    response->write(header + content, headers);
+  }
+
+  void verifyPassword(resp_https_t response, req_https_t request) {
+    try {
+      // Reading incoming JSON data
+      std::stringstream ss;
+      ss << request->content.rdbuf();
+      pt::ptree inputTree;
+      pt::read_json(ss, inputTree);
+
+      // Getting incoming password from request JSON
+      auto incomingPassword = inputTree.get<std::string>("password");
+
+      // Hashing incoming password with the salt read from config::sunshine.salt
+      auto hashedIncomingPassword = util::hex(crypto::hash(incomingPassword + config::sunshine.salt)).to_string();
+
+      // Comparing hashed password with stored password
+      if (hashedIncomingPassword == config::sunshine.password) {
+        response->write(SimpleWeb::StatusCode::success_ok, "Password verified.");
+      } else {
+        response->write(SimpleWeb::StatusCode::client_error_unauthorized, "Invalid password.");
+      }
+    }
+    catch(const std::exception& e) {
+      response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
+    }
+  }
+
+
+  void storeMnemonic(resp_https_t response, req_https_t request) {
+    try {
+      std::string mnemonic = request->content.string();
+      shaga::store_encrypted_mnemonic(mnemonic);
+      response->write(SimpleWeb::StatusCode::success_ok, "Stored successfully.");
+    }
+    catch(const std::exception& e) {
+      response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
+    }
+  }
+
+  void storeKeypair(resp_https_t response, req_https_t request) {
+    try {
+      // Parse the incoming request to JSON and extract "encryptedKeypair"
+      nlohmann::json json_request = nlohmann::json::parse(request->content.string());
+      std::string encrypted_keypair = json_request["encryptedKeypair"];
+
+      shaga::store_encrypted_keypair(encrypted_keypair);
+      response->write(SimpleWeb::StatusCode::success_ok, "Keypair stored successfully.");
+    }
+    catch (const std::exception& e) {
+      response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
+    }
+  }
+
+
+  void fetchMnemonic(resp_https_t response, req_https_t request) {
+    if (!authenticate(response, request)) {
+      response->write(SimpleWeb::StatusCode::client_error_unauthorized, "Unauthorized");
+      return;
+    }
+
+    std::ifstream file("secure_mnemonic_storage.txt");
+    std::string encrypted_mnemonic;
+
+    if (file.is_open()) {
+      std::getline(file, encrypted_mnemonic);
+      file.close();
+      response->write(SimpleWeb::StatusCode::success_ok, encrypted_mnemonic);
+    } else {
+      response->write(SimpleWeb::StatusCode::client_error_bad_request, "Failed to open the file.");
+    }
+  }
+
+  void fetchKeypair(resp_https_t response, req_https_t request) {
+    if (!authenticate(response, request)) {
+      response->write(SimpleWeb::StatusCode::client_error_unauthorized, "Unauthorized");
+      return;
+    }
+
+    std::ifstream file("secure_ed25519_storage.txt");
+    std::string encrypted_keypair;
+
+    if (file.is_open()) {
+      std::getline(file, encrypted_keypair);
+      file.close();
+      response->write(SimpleWeb::StatusCode::success_ok, encrypted_keypair);
+    } else {
+      response->write(SimpleWeb::StatusCode::client_error_bad_request, "Failed to open the keypair storage file.");
+    }
+  }
+
+  void getSystemInfo(resp_https_t response, req_https_t request) {
+    try {
+      // Build the payload using your existing buildPayload() function
+      SystemInfoPayload payload = buildPayload();
+
+      // Create a property tree object
+      pt::ptree pt;
+
+      // Populate the property tree with payload data
+      pt.put("ipAddress", payload.ipAddress);
+      pt.put("cpuName", payload.cpuName);
+      pt.put("gpuName", payload.gpuName);
+      pt.put("totalRamMB", payload.totalRamMB);
+      // TODO: add more system specs using third-party/SystemInfo pt.put("firstValidMemoryType", payload.firstValidMemoryType);
+
+      // Serialize the property tree to a JSON string
+      std::ostringstream buf;
+      pt::write_json(buf, pt);
+
+      // Respond with the JSON payload
+      response->write(SimpleWeb::StatusCode::success_ok, buf.str());
+    }
+    catch (const std::exception &e) {
+      // Handle exceptions and respond with an error
+      response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
+    }
+  }
+
+  void getSalt(resp_https_t response, req_https_t request) {
+    try {
+      // Reading salt from config::sunshine.salt
+      auto salt = config::sunshine.salt;
+
+      // Respond with the salt
+      response->write(SimpleWeb::StatusCode::success_ok, salt);
+    }
+    catch(const std::exception& e) {
+      response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
+    }
+  }
+
+
+  void
   start() {
     auto shutdown_event = mail::man->event<bool>(mail::shutdown);
 
@@ -774,34 +940,16 @@ namespace confighttp {
     server.resource["^/images/logo-sunshine-45.png$"]["GET"] = getSunshineLogoImage;
     server.resource["^/node_modules\\/.+$"]["GET"] = getNodeModules;
     // Shaga
+    server.resource["^/libs/.*$"]["GET"] = getJavaScriptLibs;
     server.resource["^/shaga$"]["GET"] = getShagaPage;
-    server.resource["^/api/system_info$"]["GET"] = [](auto response, auto request) {
-      try {
-        // Build the payload using your existing buildPayload() function
-        SystemInfoPayload payload = buildPayload();
+    server.resource["^/api/system_info$"]["GET"] = getSystemInfo;
+    server.resource["^/api/verify_password$"]["POST"] = verifyPassword;
+    server.resource["^/api/store_mnemonic$"]["POST"] = storeMnemonic;
+    server.resource["^/api/fetch_mnemonic$"]["POST"] = fetchMnemonic;
+    server.resource["^/api/store_keypair$"]["POST"] = storeKeypair;
+    server.resource["^/api/fetch_keypair$"]["POST"] = fetchKeypair;
+    server.resource["^/api/get_salt$"]["GET"] = getSalt;
 
-        // Create a property tree object
-        pt::ptree pt;
-
-        // Populate the property tree with payload data
-        pt.put("ipAddress", payload.ipAddress);
-        pt.put("cpuName", payload.cpuName);
-        pt.put("gpuName", payload.gpuName);
-        pt.put("totalRamMB", payload.totalRamMB);
-        pt.put("firstValidMemoryType", payload.firstValidMemoryType);
-
-        // Serialize the property tree to a JSON string
-        std::ostringstream buf;
-        pt::write_json(buf, pt);
-
-        // Respond with the JSON payload
-        response->write(SimpleWeb::StatusCode::success_ok, buf.str());
-      }
-      catch (const std::exception &e) {
-        // Handle exceptions and respond with an error
-        response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
-      }
-    };
     // Shaga
     server.config.reuse_address = true;
     server.config.address = "0.0.0.0"s;

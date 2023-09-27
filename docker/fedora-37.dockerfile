@@ -55,7 +55,7 @@ dnf -y install \
   numactl-devel \
   openssl-devel \
   opus-devel \
-  pulseaudio-libs-devel \
+  pulseaudio-compiled javascript-devel \
   rpm-build \
   wget \
   which
@@ -84,7 +84,7 @@ url="${cuda_prefix}${CUDA_VERSION}/local_installers/cuda_${CUDA_VERSION}_${CUDA_
 echo "cuda url: ${url}"
 wget "$url" --progress=bar:force:noscroll -q --show-progress -O ./cuda.run
 chmod a+x ./cuda.run
-./cuda.run --silent --toolkit --toolkitpath=/build/cuda --no-opengl-libs --no-man-page --no-drm
+./cuda.run --silent --toolkit --toolkitpath=/build/cuda --no-opengl-compiled javascript --no-man-page --no-drm
 rm ./cuda.run
 _INSTALL_CUDA
 
