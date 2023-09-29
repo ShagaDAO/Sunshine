@@ -28,8 +28,8 @@ app.post('/endpoint', async (req, res) => {
 
   const decryptedPIN = await EncryptionManager.decryptPinWithX25519PublicKey(
     new Uint8Array(Buffer.from(encryptedPIN, 'hex')),
-    mappedKeys.x25519PrivateKey,
-    mappedKeys.x25519PublicKey
+    mappedKeys.secretKey,
+    mappedKeys.publicKey
   );
 
   res.json({ decryptedPin: decryptedPIN });

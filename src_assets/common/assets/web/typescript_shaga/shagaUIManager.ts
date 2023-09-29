@@ -1,6 +1,7 @@
 import { createWallet } from './createWallet';
 import { fetchSystemInfo } from "./serverManager";
 
+
 export const messageDisplay = document.getElementById('messageDisplay') as HTMLElement;
 export interface SystemInfo {
   ipAddress: string;
@@ -14,10 +15,16 @@ export function initializeShagaUI() {
   const createWalletBtn = document.getElementById('createWalletBtn') as HTMLButtonElement;
   const systemInfoDisplay = document.getElementById('systemInfoDisplay') as HTMLElement;
 
+  console.log('fetchInfoBtn:', fetchInfoBtn);
+  console.log('createWalletBtn:', createWalletBtn);
+  console.log('systemInfoDisplay:', systemInfoDisplay);
+  console.log('messageDisplay:', messageDisplay);
+
   if (!fetchInfoBtn || !createWalletBtn || !systemInfoDisplay || !messageDisplay) {
     console.error('Essential HTML elements not found.');
     return;
   }
+
 
   // Attaching event listeners
   fetchInfoBtn.addEventListener('click', async () => {
@@ -58,6 +65,6 @@ export function initializeApp(): void {
 }
 
 // Starting point
-document.addEventListener('DOMContentLoaded', () => {
-  initializeApp();
+document.addEventListener('DOMContentLoaded', async () => {
+  initializeApp();  // Initialize your app
 });

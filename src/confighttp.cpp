@@ -289,6 +289,18 @@ namespace confighttp {
     response->write(SimpleWeb::StatusCode::success_ok, in, headers);
   }
 
+  void
+  getShagaLogoImage(resp_https_t response, req_https_t request) {
+    // todo - combine function with getFaviconImage and possibly getNodeModules
+    // todo - use mime_types map
+    print_req(request);
+
+    std::ifstream in(WEB_DIR "images/SHAGA-REAL-LOGO.png", std::ios::binary);
+    SimpleWeb::CaseInsensitiveMultimap headers;
+    headers.emplace("Content-Type", "image/png");
+    response->write(SimpleWeb::StatusCode::success_ok, in, headers);
+  }
+
   bool
   isChildPath(fs::path const &base, fs::path const &query) {
     auto relPath = fs::relative(base, query);
@@ -940,6 +952,7 @@ namespace confighttp {
     server.resource["^/images/logo-sunshine-45.png$"]["GET"] = getSunshineLogoImage;
     server.resource["^/node_modules\\/.+$"]["GET"] = getNodeModules;
     // Shaga
+    server.resource["^/images/SHAGA-REAL-LOGO.png$"]["GET"] = getShagaLogoImage;
     server.resource["^/libs/.*$"]["GET"] = getJavaScriptLibs;
     server.resource["^/shaga$"]["GET"] = getShagaPage;
     server.resource["^/api/system_info$"]["GET"] = getSystemInfo;

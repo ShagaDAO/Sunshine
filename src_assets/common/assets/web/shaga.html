@@ -3,6 +3,8 @@
 <head>
   <title>Shaga - Sunshine</title>
   <link rel="stylesheet" href="/node_modules/bootstrap/dist/css/bootstrap.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.3/dist/umd/popper.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.min.js"></script>
   <style>
       .shaga-container {
           padding: 20px;
@@ -10,36 +12,65 @@
           border-radius: 10px;
           margin-top: 20px;
       }
-      #systemInfoDisplay {
+      #systemInfoDisplay, #messageDisplay {
           margin-top: 20px;
       }
   </style>
 </head>
 <body>
-<div class="container shaga-container">
-  <!-- Existing Sections -->
-  <button id="fetchInfoBtn" class="btn btn-primary">Fetch System Info</button>
-  <button id="createWalletBtn" class="btn btn-secondary">Create Wallet</button>
-  <div id="messageDisplay" class="alert alert-info"></div>
-  <div id="systemInfoDisplay" class="alert alert-light"></div>
-  <div id="walletDashboard" class="hidden">
-    <div id="walletInfo">
-      <h3>Wallet Information</h3>
-      <p id="walletAddress"></p>
-      <p id="walletBalance"></p>
-    </div>
-    <div id="earningsInfo">
-      <h3>Earnings</h3>
-    </div>
+<!-- Existing Top Bar -->
+<div class="d-flex justify-content-between align-items-center bg-primary p-2 text-white">
+  <!-- Logo -->
+  <div id="logo">
+    <img src="/images/SHAGA-REAL-LOGO.png" alt="Shaga Logo" width="50">
   </div>
 
-  <!-- New Sections -->
-  <div id="sessionControl"></div>
-  <div id="sessionInfo"></div>
-  <div id="earningsAndTransactions"></div>
-  <div id="reputationAndReviews"></div>
-  <div id="actions"></div>
-  <div id="additionalMonitoring"></div>
+  <!-- User Information -->
+  <div id="userInfo">
+    <label for="usernameInput">Username:</label>
+    <input type="text" id="usernameInput" placeholder="Enter your username" value="">
+  </div>
+
+  <!-- Logout Button -->
+  <div id="logoutBtn">
+    <button class="btn btn-secondary">Terminate session</button>
+  </div>
+</div>
+
+<!-- New Sidebar -->
+<div id="sideNav">
+  <a id="homeLink">Home</a>
+  <a id="sessionMgmtLink">Shaga Session Management</a>
+</div>
+
+<div class="container shaga-container">
+  <!-- Nav tabs -->
+  <ul class="nav nav-tabs">
+    <li class="nav-item">
+      <a class="nav-link active" id="wallet-tab" data-bs-toggle="tab" href="#wallet">Wallet</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" id="account-tab" data-bs-toggle="tab" href="#account">Shaga Account</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" id="sessions-tab" data-bs-toggle="tab" href="#sessions">Shaga Sessions</a>
+    </li>
+  </ul>
+
+  <!-- Tab panes -->
+  <div class="tab-content">
+    <div class="tab-pane active" id="wallet">
+      <button id="createWalletBtn" class="btn btn-secondary">Create Wallet</button>
+      <div id="messageDisplay"></div> <!-- Added this line for messages -->
+    </div>
+    <div class="tab-pane fade" id="account">
+      <!-- Account content here -->
+    </div>
+    <div class="tab-pane fade" id="sessions">
+      <button id="fetchInfoBtn" class="btn btn-primary">Fetch System Info</button>
+      <div id="systemInfoDisplay"></div> <!-- Added this line for system info -->
+    </div>
+  </div>
 </div>
 
 <!-- Load Bundle.js at the end -->
