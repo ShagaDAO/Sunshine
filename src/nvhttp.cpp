@@ -556,6 +556,23 @@ namespace nvhttp {
     return readBuffer;
   }
 
+  /*
+   * TODO: FOR MORE SECURE CODE:
+Edge Cases: Check how the system behaves if it receives malformed or malicious data.
+Rate Limiting: Implement rate limiting to prevent brute-force attacks.
+Log Monitoring: Use automated log monitoring to detect any unusual patterns in real-time.
+Security Audits: Given the critical nature of the application, a third-party security audit is highly recommended.
+Unit and Integration Tests: Write exhaustive unit tests covering all possible edge cases for the encryption and decryption methods. Run integration tests to simulate the entire data flow from the client to the server.
+Data Integrity: Implement checksums or hash values to verify that the data has not been tampered with during transmission.
+
+Immediate Actions:
+Replace ECB Mode: Given its vulnerabilities, replace it with a more secure mode like CBC or GCM.
+Add Salt and IV: Implement these in your encryption and ensure they are transmitted securely to the server for decryption.
+Robust Testing: Before this goes live, it should be thoroughly tested under various scenarios including edge cases and failure modes.
+Review and Audit: Conduct multiple rounds of code reviews focusing specifically on the security aspects, followed by a professional security audit.
+Documentation: Document every single detail of the encryption and decryption process, as well as data transmission, so that anyone reviewing your system can understand it thoroughly.
+Emergency Response Plan: Have a plan in place for immediate action in case of any security incidents post-deployment.
+   */
 
   template <class T>
   void pairShaga(std::shared_ptr<safe::queue_t<crypto::x509_t>> &add_cert,
@@ -574,8 +591,39 @@ namespace nvhttp {
 
     auto args = request->parse_query_string();
 
+    // New code: Validate parameters
+    auto encryptedPin_it = args.find("encryptedPin");
+    if (encryptedPin_it == std::end(args) || encryptedPin_it->second.empty()) {
+      tree.put("root.<xmlattr>.status_code", 400);
+      tree.put("root.<xmlattr>.status_message", "Missing or empty encryptedPin parameter");
+      return;
+    }
+
+    auto publicKey_it = args.find("publicKey");
+    if (publicKey_it == std::end(args) || publicKey_it->second.empty()) {
+      tree.put("root.<xmlattr>.status_code", 400);
+      tree.put("root.<xmlattr>.status_message", "Missing or empty publicKey parameter");
+      return;
+    }
+
+    auto clientcert_it = args.find("clientcert");
+    if (clientcert_it == std::end(args) || clientcert_it->second.empty()) {
+      tree.put("root.<xmlattr>.status_code", 400);
+      tree.put("root.<xmlattr>.status_message", "Missing or empty clientcert parameter");
+      return;
+    }
+
+    auto salt_it = args.find("salt");
+    if (salt_it == std::end(args) || salt_it->second.empty()) {
+      tree.put("root.<xmlattr>.status_code", 400);
+      tree.put("root.<xmlattr>.status_message", "Missing or empty salt parameter");
+      return;
+    }
+
     // Capture additional arguments
+    // from client as String hexEncryptedPin = bytesToHex(encryptedPin);
     std::string encryptedPin = get_arg(args, "encryptedPin");
+    // from client as String publicKeyBase58 = publicKey.toBase58();
     std::string publicKey = get_arg(args, "publicKey");
 
     // Check for uniqueid

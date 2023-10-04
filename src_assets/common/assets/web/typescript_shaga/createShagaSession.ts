@@ -15,41 +15,27 @@ app.use(bodyParser.json());
 
 
 // Initialize WebSocket and connect to Solana RPC
-const websocket = new WebSocket('ws://localhost:8900'); // Replace with actual Solana RPC address
+const websocket = new WebSocket('ws://localhost:8900'); // TODO: Replace with actual Solana RPC address
 
-// Subscribe to an account to get notifications
-websocket.on('open', () => {
-  const subscribeParams = {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "accountSubscribe",
-    params: [
-      // TODO: The public key of the account you're interested in
-      "YourAccountPublicKeyHere",
-      {
-        encoding: "jsonParsed",
-        commitment: "finalized"
-      }
-    ]
-  };
-  websocket.send(JSON.stringify(subscribeParams));
-});
+function subscribeToAccount(accountPublicKey: string) {
+  websocket.on('open', () => {
+    const subscribeParams = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "accountSubscribe",
+      params: [
+        accountPublicKey,
+        {
+          encoding: "jsonParsed",
+          commitment: "finalized"
+        }
+      ]
+    };
+    websocket.send(JSON.stringify(subscribeParams));
+  });
+}
 
 
-// Listen for WebSocket messages (Newly added section)
-websocket.on('message', (data) => {
-  const message = JSON.parse(data.toString());
-  if (message.method && message.method === 'accountNotification') {
-    const params = message.params;
-    const result = params.result;
-    const value = result.value;
-
-    // Your logic to check if the payment is received
-    if (value.lamports > 1000) { // Replace with your actual condition
-      sharedState.isRentPaid = true;
-    }
-  }
-});
 
 
 // Function to load encrypted keypair from server
@@ -76,48 +62,96 @@ async function loadEncryptedKeypairFromServer(): Promise<EncryptResult | null> {
 
 // Function to listen for payments
 function listenForPayments(sessionAccountPublicKey: string) {
-  // TODO: Implement WebSocket listening logic here
+  // Listen for WebSocket messages
+  websocket.on('message', (data) => {
+    const message = JSON.parse(data.toString());
+    if (message.method && message.method === 'accountNotification') {
+      const params = message.params;
+      const result = params.result;
+      const value = result.value;
+
+      if (value.lamports > 1000) { // TODO: Replace with actual condition
+        sharedState.isRentPaid = true;
+      }
+    }
+  });
 }
 
 // Initialize
 (async () => {
-  const userPassword = prompt("Please enter your password:");  // Obtain password from user
-  if (userPassword === null) {
-    console.error('Password prompt cancelled.');
-    return;
+  let userPassword = null;
+  let isVerified = false;
+  let systemInfo = null;
+  let parsedUsdcPerHour = NaN;
+  let parsedLendingDuration = NaN;
+
+  // Password Verification Loop
+  while (!isVerified) {
+    try {
+      userPassword = prompt("Please enter your password:");
+      if (userPassword === null) {
+        console.error('Password prompt cancelled.');
+        return;
+      }
+      isVerified = await verifyPassword(userPassword);
+      if (!isVerified) {
+        console.error('Password verification failed. Please try again.');
+      }
+    } catch (e) {
+      console.error('An error occurred during password verification. Please try again.');
+    }
   }
 
-  // Verify the user's password using the imported function
-  const isVerified = await verifyPassword(userPassword);
-  if (!isVerified) {
-    console.error('Password verification failed.');
-    return;
-  }
-
-  const systemInfo = await fetchSystemInfo();
+  // Fetch System Info
+  systemInfo = await fetchSystemInfo();
   if (!systemInfo) {
     console.error('Failed to fetch system info.');
     return;
   }
 
-  // Ask the user for their required USDC per hour rate
-  const usdcPerHour = prompt("Please enter how many USDC per hour you require:");
-  if (usdcPerHour === null) {
-    console.error('USDC rate prompt cancelled.');
-    return;
+  // USDC Rate Loop
+  while (isNaN(parsedUsdcPerHour)) {
+    try {
+      const usdcPerHour = prompt("Please enter how many USDC per hour you require:");
+      if (usdcPerHour === null) {
+        console.error('USDC rate prompt cancelled.');
+        return;
+      }
+      parsedUsdcPerHour = parseFloat(usdcPerHour);
+      if (isNaN(parsedUsdcPerHour)) {
+        console.error('Invalid USDC rate entered. Please enter a valid number.');
+      }
+    } catch (e) {
+      console.error('An error occurred during USDC rate input. Please try again.');
+    }
   }
 
-  // Type check and parsing
-  const parsedUsdcPerHour = parseFloat(usdcPerHour);
-  if (isNaN(parsedUsdcPerHour)) {
-    console.error('Invalid USDC rate entered.');
-    return;
+  // Lending Duration Loop
+  while (isNaN(parsedLendingDuration)) {
+    try {
+      const lendingDuration = prompt("Please enter how many hours you plan to lend:");
+      if (lendingDuration === null) {
+        console.error('Lending duration prompt cancelled.');
+        return;
+      }
+      parsedLendingDuration = parseFloat(lendingDuration);
+      if (isNaN(parsedLendingDuration)) {
+        console.error('Invalid lending duration entered. Please enter a valid number.');
+      }
+    } catch (e) {
+      console.error('An error occurred during lending duration input. Please try again.');
+    }
   }
+
+  // Calculate affairTerminationTime (current Unix timestamp + lending duration in seconds)
+  const currentTime = Math.floor(Date.now() / 1000); // Current time in seconds
+  const affairTerminationTime = currentTime + (parsedLendingDuration * 3600);
 
   // Prepare payload
   const payload = {
     systemInfo,
-    usdcPerHour: parsedUsdcPerHour
+    usdcPerHour: parsedUsdcPerHour,
+    affairTerminationTime
   };
 
   // Create session account on Solana
@@ -125,7 +159,7 @@ function listenForPayments(sessionAccountPublicKey: string) {
 
   const encryptedKeypair = await loadEncryptedKeypairFromServer();
 
-  if (encryptedKeypair) {
+  if (encryptedKeypair && userPassword!= null) {
     const decryptedKeypair = await EncryptionManager.decryptED25519Keypair(
       encryptedKeypair,
       userPassword,
@@ -136,21 +170,6 @@ function listenForPayments(sessionAccountPublicKey: string) {
   listenForPayments(sessionAccountPublicKey);
 })();
 
-
-// Listen for WebSocket messages (Newly added section)
-websocket.on('message', (data) => {
-  const message = JSON.parse(data.toString());
-  if (message.method && message.method === 'accountNotification') {
-    const params = message.params;
-    const result = params.result;
-    const value = result.value;
-
-    // Your logic to check if the payment is received
-    if (value.lamports > 1000) { // Replace with your actual condition
-      sharedState.isRentPaid = true;
-    }
-  }
-});
 app.listen(3001, () => {
   console.log('Server running on http://localhost:3001/');
 });
