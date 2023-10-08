@@ -1,3 +1,5 @@
+// encryptionManager.ts
+
 import { Keypair } from '@solana/web3.js';
 import * as naclUtil from 'tweetnacl-util';
 import * as crypto from 'crypto';

@@ -1,9 +1,12 @@
+// createWallet.ts
+
 import * as bip39 from 'bip39';
 import { Keypair } from "@solana/web3.js";
 import { EncryptionManager } from './encryptionManager';
 import { ServerManager } from './serverManager';
 import { SolanaManager } from './serverManager';
-import { messageDisplay } from './shagaUIManager';
+import { fetchAndDisplayBalance, getWalletStatus, loadAndDecryptKeypair, messageDisplay } from "./shagaUIManager";
+import { sharedState } from "./sharedState";
 
 
 
@@ -41,6 +44,14 @@ export async function verifyPassword(password: string): Promise<boolean> {
 
 // The main createWallet function
 export async function createWallet() {
+  console.log("createWallet called"); // Debug
+  // First, check if a wallet already exists
+  const hasWallet = await getWalletStatus();
+  if (hasWallet) {
+    handleError('A wallet already exists. Cannot create a new one.');
+    return;
+  }
+
   const reEnteredPassword = prompt("Please re-enter your password:");
   if (reEnteredPassword === null) {
     handleError('Password prompt cancelled.');
@@ -62,7 +73,6 @@ export async function createWallet() {
       ed25519PrivateKey: keypair.secretKey,  // Already Uint8Array
     };
     const encryptedKeypair = await EncryptionManager.encryptED25519Keypair(renamedKeypair, reEnteredPassword);
-
     // Check if the encryption was successful
     if (encryptedKeypair === null) {
       handleError("Keypair encryption failed!");
@@ -78,22 +88,37 @@ export async function createWallet() {
     }
 
     console.log(`Wallet Created. Public Key: ${keypair.publicKey}`);
-
-// Fetch and display the balance of the new wallet
+    // Fetch and display the balance of the new wallet
     const balance = await SolanaManager.getBalance(keypair.publicKey);
     if (balance !== null) {
       console.log(`Initial Wallet Balance: ${balance} LAMPORTS`);
     } else {
       console.log("Failed to fetch wallet balance.");
     }
-
     // Store the encrypted mnemonic and keypair
     await ServerManager.postEncryptedMnemonicToServer(encryptionResult.encrypted);
     await ServerManager.postEncryptedKeypairToServer(encryptedKeypair);
+    // Make an API call to store the wallet status as 'true' (indicating a wallet has been created)
+    try {
+      const response = await fetch('/api/store_wallet_status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify('true'),
+      });
 
+      if (!response.ok) {
+        throw new Error('Failed to store wallet status.');
+      }
+    } catch (error) {
+      console.error('Error while storing wallet status:', error);
+    }
     // After successful wallet creation
     messageDisplay.className = 'alert alert-success';
     messageDisplay.innerHTML = `Wallet Created. Public Key: ${keypair.publicKey}`;
+    await loadAndDecryptKeypair(reEnteredPassword);
+    await fetchAndDisplayBalance();
 
   } else {
     messageDisplay.innerHTML = "Invalid password.";

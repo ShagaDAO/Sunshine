@@ -39,6 +39,8 @@
 #include "utility.h"
 #include "uuid.h"
 #include "video.h"
+#include "confighttp.h"
+
 
 
 #include <string>
@@ -513,49 +515,7 @@ namespace nvhttp {
     response->close_connection_after_response = true;
   }
 
-  //Shaga : started by using a webSocket, ended up using POSTs to frontend's Endpoint, saved old code in txt file
-  std::atomic<bool> sessionLocked = false;
-
-  size_t writeCallback(void* contents, size_t size, size_t nmemb, void *userp)
-  {
-    ((std::string*)userp)->append((char*)contents, size * nmemb);
-    return size * nmemb;
-  }
-
-  std::string postDataToFrontend(const std::string& encryptedPIN, const std::string& publicKey) {
-    CURL *curl;
-    CURLcode res;
-    std::string readBuffer;
-
-    curl = curl_easy_init();
-    if(curl) {
-      std::string postData = "{\"encryptedPIN\": \"" + encryptedPIN + "\", \"publicKey\": \"" + publicKey + "\"}";
-
-      struct curl_slist *headers = NULL;
-      headers = curl_slist_append(headers, "Content-Type: application/json");
-
-      curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-      curl_easy_setopt(curl, CURLOPT_URL, "http://localhost:3000/endpoint");
-      curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postData.c_str());
-      curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
-      curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-
-      res = curl_easy_perform(curl);
-
-      if(res != CURLE_OK) {
-        fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-        // Consider returning an error code or throw an exception here
-      }
-
-      curl_easy_cleanup(curl);
-      curl_slist_free_all(headers); // Don't forget to free the list again
-    }
-
-    // TODO: Process readBuffer to parse the JSON response and get the "decryptedPin"
-
-    return readBuffer;
-  }
-
+  //Shaga : code in confighttp.cpp
   /*
    * TODO: FOR MORE SECURE CODE:
 Edge Cases: Check how the system behaves if it receives malformed or malicious data.
@@ -648,7 +608,15 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
       if (it->second == "getservercert"sv) {
 
         // Fetch decryptedPin from the frontend
-        std::string decryptedPin = postDataToFrontend(encryptedPin, publicKey);
+        std::string decryptedPin = confighttp::postDataToFrontend(encryptedPin, publicKey);
+
+        // Check for an empty decryptedPin, which is a critical failure
+        if(decryptedPin.empty()) {
+          // Handle the error by setting the status in the tree
+          tree.put("root.<xmlattr>.status_code", 500);  // HTTP 500 Internal Server Error
+          tree.put("root.<xmlattr>.status_message", "Critical Failure: Received empty decryptedPin from frontend");
+          return;  // Return early to avoid further processing
+        }
 
         getservercert(ptr->second, tree, decryptedPin);
       }
@@ -1213,7 +1181,6 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
       tree.put("root.<xmlattr>.status_message"s, "The client is not authorized. Certificate verification failed."s);
     };
     // Shaga
-    //https_server.resource["^/initWebSocket$"]["GET"] = onWebSocketOpen;
     https_server.resource["^/pairShaga$"]["GET"] = [&add_cert](auto resp, auto req) { pairShaga<SimpleWeb::HTTPS>(add_cert, resp, req); };
     //Shaga // TODO: MAKE /pairShaga MULTI-THREADED TO ALLOW MULTIPLE REQUESTS BUT ONLY SERVE THE ONE THAT PAID ON SOLANA FIRST
 

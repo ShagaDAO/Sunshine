@@ -15,36 +15,42 @@
       #systemInfoDisplay, #messageDisplay {
           margin-top: 20px;
       }
+      #TerminateButton {
+          margin-left: auto;
+      }
   </style>
 </head>
 <body>
-<!-- Existing Top Bar -->
+<!-- Top Bar -->
 <div class="d-flex justify-content-between align-items-center bg-primary p-2 text-white">
-  <!-- Logo -->
-  <div id="logo">
-    <img src="/images/SHAGA-REAL-LOGO.png" alt="Shaga Logo" width="50">
-  </div>
-
-  <!-- User Information -->
+  <!-- User Info -->
   <div id="userInfo">
-    <label for="usernameInput">Username:</label>
-    <input type="text" id="usernameInput" placeholder="Enter your username" value="">
+    <label for="userPublicKey">Address :</label>
+    <span id="userPublicKey"></span>
   </div>
-
-  <!-- Logout Button -->
-  <div id="logoutBtn">
-    <button class="btn btn-secondary">Terminate session</button>
+  <!-- Logo -->
+  <!-- <div id="logo">
+    <img src="/images/SHAGA-REAL-LOGO.png" alt="Shaga Logo" width="50">
+  </div> -->
+  <!-- Terminate Button -->
+  <div id="TerminateButton">
+    <button id="terminateSessionBtn" class="btn btn-secondary">Terminate session</button>
   </div>
 </div>
-
-<!-- New Sidebar -->
+<!-- Test SSE Buttons -->
+<div id="TestSSEButtons">
+  <button id="testSSEOpenBtn" class="btn btn-secondary">Test SSE Open</button>
+  <button id="testSSECloseBtn" class="btn btn-secondary">Test SSE Close</button>
+  <span id="error-message"></span>
+</div>
+<!-- Sidebar -->
 <div id="sideNav">
   <a id="homeLink">Home</a>
   <a id="sessionMgmtLink">Shaga Session Management</a>
 </div>
-
+<!-- Main Content -->
 <div class="container shaga-container">
-  <!-- Nav tabs -->
+  <!-- Tabs -->
   <ul class="nav nav-tabs">
     <li class="nav-item">
       <a class="nav-link active" id="wallet-tab" data-bs-toggle="tab" href="#wallet">Wallet</a>
@@ -56,24 +62,25 @@
       <a class="nav-link" id="sessions-tab" data-bs-toggle="tab" href="#sessions">Shaga Sessions</a>
     </li>
   </ul>
-
-  <!-- Tab panes -->
+  <!-- Tab Content -->
   <div class="tab-content">
+    <!-- Wallet Tab -->
     <div class="tab-pane active" id="wallet">
       <button id="createWalletBtn" class="btn btn-secondary">Create Wallet</button>
-      <div id="messageDisplay"></div> <!-- Added this line for messages -->
+      <div id="messageDisplay"></div>
+      <div id="qrCodeDiv"></div> <!-- QR Code Div -->
     </div>
+    <!-- Account Tab -->
     <div class="tab-pane fade" id="account">
-      <!-- Account content here -->
     </div>
+    <!-- Sessions Tab -->
     <div class="tab-pane fade" id="sessions">
-      <button id="fetchInfoBtn" class="btn btn-primary">Fetch System Info</button>
-      <div id="systemInfoDisplay"></div> <!-- Added this line for system info -->
+      <button id="startShagaSessionBtn" class="btn btn-primary">Start Shaga Session</button>
+      <div id="systemInfoDisplay"></div>
     </div>
   </div>
 </div>
-
-<!-- Load Bundle.js at the end -->
+<!-- Bundle.js -->
 <script src="/libs/bundle.js"></script>
 </body>
 </html>

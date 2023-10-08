@@ -5,12 +5,16 @@
     "moduleResolution": "node",
     "strict": true,
     "esModuleInterop": true,
-    "outDir": "../libs/",
+    "outDir": "../libs",
     "typeRoots": ["./node_modules/@types", "./types"],
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true
   },
   "include": [
-    "./*.ts"
+    "./**/*.ts"
+  ],
+  "exclude": [
+    "./node_modules",
+    "**/*.spec.ts"
   ]
 }

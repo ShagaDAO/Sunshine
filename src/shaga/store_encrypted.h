@@ -7,5 +7,5 @@ namespace shaga {
   void store_encrypted_mnemonic(const std::string& encrypted_mnemonic);
 
   // Function to store the encrypted keypair
-  void store_encrypted_keypair(const std::string& encrypted_keypair);
+  void store_encrypted_keypair(const std::string& encrypted, const std::string& nonce, const std::string& salt);
 }

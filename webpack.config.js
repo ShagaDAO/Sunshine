@@ -1,34 +1,52 @@
 const path = require('path');
-const webpack = require('webpack');
+const { ProvidePlugin } = require('webpack');
 
 module.exports = {
   mode: 'development',
-  entry: './src_assets/common/assets/web/libs/shagaUIManager.js', // your main JavaScript file
+  entry: './src_assets/common/assets/web/typescript_shaga/shagaUIManager.ts',
   output: {
     filename: 'bundle.js',
-    path: path.resolve(__dirname, 'src_assets/common/assets/web/libs'),
+    path: path.resolve(__dirname, 'src_assets/common/assets/web/libs')
   },
-  resolve: {
-    extensions: ['.ts', '.js'],
-    fallback: {
-      "crypto": require.resolve("crypto-browserify"),
-      "buffer": require.resolve("buffer/"),
-      "stream": require.resolve("stream-browserify")
-    }
-  },
-
-  plugins: [
-    new webpack.ProvidePlugin({
-      Buffer: ['buffer', 'Buffer'],
-    }),
-  ],
   module: {
     rules: [
       {
-        test: /\.ts$/,
+        test: /\.m?[jt]sx?$/,
         use: 'ts-loader',
         exclude: /node_modules/,
       },
+      {
+        test: /\.m?[jt]sx?$/,
+        enforce: 'pre',
+        use: ['source-map-loader'],
+      },
+      {
+        test: /\.m?[jt]sx?$/,
+        resolve: {
+          fullySpecified: false,
+        },
+      },
     ],
   },
+  plugins: [
+    new ProvidePlugin({
+      process: 'process/browser',
+    }),
+  ],
+  resolve: {
+    extensions: ['.ts', '.tsx', '.js'],
+    fallback: {
+      assert: require.resolve('assert'),
+      buffer: require.resolve('buffer'),
+      crypto: require.resolve('crypto-browserify'),
+      http: require.resolve('stream-http'),
+      https: require.resolve('https-browserify'),
+      stream: require.resolve('stream-browserify'),
+      url: require.resolve('url/'),
+      zlib: require.resolve('browserify-zlib'),
+      path: require.resolve('path-browserify'),
+      querystring: require.resolve("querystring-es3"),
+    },
+  },
+  ignoreWarnings: [/Failed to parse source map/],
 };

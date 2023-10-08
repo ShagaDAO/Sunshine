@@ -829,11 +829,20 @@ namespace confighttp {
 
   void storeKeypair(resp_https_t response, req_https_t request) {
     try {
-      // Parse the incoming request to JSON and extract "encryptedKeypair"
+      // Parse the incoming request to JSON
       nlohmann::json json_request = nlohmann::json::parse(request->content.string());
-      std::string encrypted_keypair = json_request["encryptedKeypair"];
 
-      shaga::store_encrypted_keypair(encrypted_keypair);
+      // Extract the three separate fields
+      std::string encrypted = json_request["encrypted"];
+      std::string nonce = json_request["nonce"];
+      std::string salt = json_request["salt"];
+
+      if (encrypted.empty() || nonce.empty() || salt.empty()) {
+        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Missing or null fields");
+        return;
+      }
+      shaga::store_encrypted_keypair(encrypted, nonce, salt);
+
       response->write(SimpleWeb::StatusCode::success_ok, "Keypair stored successfully.");
     }
     catch (const std::exception& e) {
@@ -867,16 +876,18 @@ namespace confighttp {
     }
 
     std::ifstream file("secure_ed25519_storage.txt");
-    std::string encrypted_keypair;
+    std::string line;
 
     if (file.is_open()) {
-      std::getline(file, encrypted_keypair);
+      std::getline(file, line);
       file.close();
-      response->write(SimpleWeb::StatusCode::success_ok, encrypted_keypair);
+      nlohmann::json json_data = nlohmann::json::parse(line);  // Parse the line into a JSON object
+      response->write(SimpleWeb::StatusCode::success_ok, json_data.dump());  // Send the JSON string
     } else {
       response->write(SimpleWeb::StatusCode::client_error_bad_request, "Failed to open the keypair storage file.");
     }
   }
+
 
   void getSystemInfo(resp_https_t response, req_https_t request) {
     try {
@@ -891,7 +902,7 @@ namespace confighttp {
       pt.put("cpuName", payload.cpuName);
       pt.put("gpuName", payload.gpuName);
       pt.put("totalRamMB", payload.totalRamMB);
-      // TODO: add more system specs using third-party/SystemInfo pt.put("firstValidMemoryType", payload.firstValidMemoryType);
+      // TODO: more info ca be added
 
       // Serialize the property tree to a JSON string
       std::ostringstream buf;
@@ -917,6 +928,199 @@ namespace confighttp {
     catch(const std::exception& e) {
       response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
     }
+  }
+
+  // Shaga
+  void saveShagaConfig(std::shared_ptr<typename SimpleWeb::Server<SimpleWeb::HTTPS>::Response> response, std::shared_ptr<typename SimpleWeb::Server<SimpleWeb::HTTPS>::Request> request) {
+    try {
+      auto content = request->content.string();
+      std::ofstream configFile("path/to/shagaConfig.txt");
+      if (configFile.is_open()) {
+        configFile << content;
+        configFile.close();
+      } else {
+        throw std::ios_base::failure("Couldn't open config file");
+      }
+      response->write(SimpleWeb::StatusCode::success_ok, "Config saved successfully");
+    }
+    catch (const std::exception &e) {
+      response->write(SimpleWeb::StatusCode::client_error_bad_request, "Failed to save config: " + std::string(e.what()));
+    }
+  }
+
+  void fetchShagaConfig(std::shared_ptr<typename SimpleWeb::Server<SimpleWeb::HTTPS>::Response> response, std::shared_ptr<typename SimpleWeb::Server<SimpleWeb::HTTPS>::Request> request) {
+    try {
+      std::ifstream configFile("path/to/shagaConfig.txt");
+      if (configFile.is_open()) {
+        std::string content((std::istreambuf_iterator<char>(configFile)), std::istreambuf_iterator<char>());
+        configFile.close();
+        response->write(SimpleWeb::StatusCode::success_ok, content);
+      } else {
+        throw std::ios_base::failure("Couldn't open config file");
+      }
+    }
+    catch (const std::exception &e) {
+      response->write(SimpleWeb::StatusCode::client_error_bad_request, "Failed to fetch config: " + std::string(e.what()));
+    }
+  }
+
+  void storeWalletStatus(resp_https_t response, req_https_t request) {
+    try {
+      std::string walletStatus = request->content.string(); // Assuming 'true' or 'false' as content
+      std::ofstream file("wallet_status.txt", std::ios::out); // Use std::ios::out to create the file if it doesn't exist
+
+      if (file.is_open()) {
+        file << walletStatus;
+        file.close();
+        response->write(SimpleWeb::StatusCode::success_ok, "Wallet status stored successfully.");
+      } else {
+        throw std::ios_base::failure("Failed to open or create the wallet_status.txt file.");
+      }
+    }
+    catch(const std::exception& e) {
+      response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
+    }
+  }
+
+  void fetchWalletStatus(resp_https_t response, req_https_t request) {
+    try {
+      if (!std::filesystem::exists("wallet_status.txt")) {
+        std::ofstream createFile("wallet_status.txt", std::ios::out); // Create the file if it doesn't exist
+        createFile << "false"; // Initialize with a default value
+        createFile.close();
+      }
+
+      std::ifstream file("wallet_status.txt");
+      std::string walletStatus;
+
+      if (file.is_open()) {
+        std::getline(file, walletStatus);
+        file.close();
+        response->write(SimpleWeb::StatusCode::success_ok, walletStatus);
+      } else {
+        throw std::ios_base::failure("Failed to open the wallet_status.txt file.");
+      }
+    }
+    catch(const std::exception& e) {
+      response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
+    }
+  }
+
+  std::mutex sse_mutex;
+  std::string encryptedPinShared;
+  std::string publicKeyShared;
+  std::string received_decryptedPin;
+  std::condition_variable cv;
+  std::atomic<bool> shouldTerminateAffair(false);
+  std::condition_variable new_data_available;
+
+
+  std::string postDataToFrontend(const std::string& encryptedPin, const std::string& publicKey) {
+    try {
+      // Lock mutex and update shared state once
+      {
+        std::unique_lock<std::mutex> lock(sse_mutex);
+        encryptedPinShared = encryptedPin;
+        publicKeyShared = publicKey;
+        new_data_available.notify_one(); // Notify that new data is available
+
+        if(cv.wait_for(lock, std::chrono::seconds(10)) == std::cv_status::timeout) {
+          throw std::runtime_error("Timed out waiting for decryptedPin");
+        }
+      }
+
+      return received_decryptedPin;
+    }
+    catch (const std::runtime_error& e) {
+      std::cerr << "Runtime Error in postDataToFrontend: " << e.what() << std::endl;
+      return "";
+    }
+    catch (const std::exception& e) {
+      std::cerr << "General Exception in postDataToFrontend: " << e.what() << std::endl;
+      return "";
+    }
+    catch (...) {
+      std::cerr << "Unknown Exception in postDataToFrontend" << std::endl;
+      return "";
+    }
+  }
+
+  void shagaPIN_endpoint(resp_https_t response, req_https_t request) {
+    try {
+      // Parse the query string to extract parameters
+      auto args = request->parse_query_string();
+
+      // Check if decryptedPin is present
+      auto decryptedPin_it = args.find("decryptedPin");
+      if(decryptedPin_it == args.end() || decryptedPin_it->second.empty()) {
+        response->write(SimpleWeb::StatusCode::client_error_bad_request, "Missing or empty decryptedPin parameter");
+        return;
+      }
+      // Get the decryptedPin value
+      std::string decryptedPin = decryptedPin_it->second;
+      // Lock the mutex and set the received_decryptedPin
+      {
+        std::unique_lock<std::mutex> lock(sse_mutex);
+        received_decryptedPin = decryptedPin;
+      }
+      // Signal postDataToFrontend that it can proceed
+      cv.notify_one();
+      // Send a response to indicate success
+      response->write(SimpleWeb::StatusCode::success_ok, "Received decryptedPin successfully");
+    }
+    catch (const std::exception& e) {
+      std::cerr << "shagaPIN_endpoint Error: " << e.what() << std::endl;
+      response->write(SimpleWeb::StatusCode::client_error_bad_request, "An error occurred");
+    }
+  }
+
+
+  void sse_endpoint(resp_https_t response, req_https_t request) {
+    std::thread([response, request = std::move(request)]() {
+      try {
+        // Add CORS headers
+        SimpleWeb::CaseInsensitiveMultimap headers;
+        headers.emplace("Access-Control-Allow-Origin", "https://localhost:47990");  // Specific origin
+        headers.emplace("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        headers.emplace("Access-Control-Allow-Headers", "Content-Type");
+
+        // SSE-specific headers
+        headers.emplace("Content-Type", "text/event-stream");
+        headers.emplace("Cache-Control", "no-cache");
+        headers.emplace("Connection", "keep-alive");
+
+        // Write headers
+        response->write(SimpleWeb::StatusCode::success_ok, headers);
+
+        // Keep the connection open
+        while (true) {
+          if (shouldTerminateAffair) {
+            shouldTerminateAffair = false;
+            break;
+          }
+          std::unique_lock<std::mutex> lock(sse_mutex);
+          new_data_available.wait(lock);
+          std::string sse_data = R"(data: {"encryptedPin": ")";
+          sse_data.append(encryptedPinShared);
+          sse_data.append(R"(", "publicKey": ")");
+          sse_data.append(publicKeyShared);
+          sse_data.append("\"}\n\n");
+          lock.unlock();
+          response->write(sse_data);
+
+          std::this_thread::sleep_for(std::chrono::milliseconds(200)); // Sleep for a short while
+        }
+      }
+      catch (const std::exception& e) {
+        std::cerr << "SSE Endpoint Error: " << e.what() << std::endl;
+      }
+    }).detach();
+  }
+
+  void terminateAffair_endpoint(resp_https_t response, req_https_t request) {
+    shouldTerminateAffair = true;
+    new_data_available.notify_all();
+    response->write(SimpleWeb::StatusCode::success_ok, "Affair terminated");
   }
 
 
@@ -958,11 +1162,17 @@ namespace confighttp {
     server.resource["^/api/system_info$"]["GET"] = getSystemInfo;
     server.resource["^/api/verify_password$"]["POST"] = verifyPassword;
     server.resource["^/api/store_mnemonic$"]["POST"] = storeMnemonic;
-    server.resource["^/api/fetch_mnemonic$"]["POST"] = fetchMnemonic;
+    server.resource["^/api/fetch_mnemonic$"]["GET"] = fetchMnemonic;
     server.resource["^/api/store_keypair$"]["POST"] = storeKeypair;
-    server.resource["^/api/fetch_keypair$"]["POST"] = fetchKeypair;
+    server.resource["^/api/fetch_keypair$"]["GET"] = fetchKeypair;
+    server.resource["^/api/shagaConfig$"]["POST"] = saveShagaConfig;
+    server.resource["^/api/shagaConfig$"]["GET"] = fetchShagaConfig;
+    server.resource["^/api/get_wallet_status$"]["GET"] = fetchWalletStatus;
+    server.resource["^/api/store_wallet_status$"]["POST"] = storeWalletStatus;
     server.resource["^/api/get_salt$"]["GET"] = getSalt;
-
+    server.resource["^/shagaPIN$"]["POST"] = shagaPIN_endpoint;
+    server.resource["^/sse$"]["GET"] = sse_endpoint;
+    server.resource["^/terminateAffair$"]["POST"] = terminateAffair_endpoint;
     // Shaga
     server.config.reuse_address = true;
     server.config.address = "0.0.0.0"s;

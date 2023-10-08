@@ -1,75 +1,86 @@
-import express from 'express';
-import bodyParser from 'body-parser';
+// decryptShagaPin.ts
+
 import { EncryptionManager } from './encryptionManager';
 import bs58 from 'bs58';
 import { sharedState } from './sharedState';
+import { PublicKey } from "@solana/web3.js";
+import { connection } from "./serverManager";
+import { Affair, AffairState } from "../../../../../third-party/shaga-program/app/shaga_joe/src/generated";
 
-const app = express();
-app.use(bodyParser.json());
 
-// Function to wait for rent to be paid
-const waitForRentPayment = (timeout: number): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    const checkInterval = 500; // milliseconds
-    let elapsedTime = 0;
+// Parameters for retry delay & timeout
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const timeLimit = 10000; // 10 seconds
 
-    const interval = setInterval(() => {
-      if (sharedState.isRentPaid) {
-        clearInterval(interval);
-        resolve();
-      }
-
-      elapsedTime += checkInterval;
-
-      if (elapsedTime >= timeout) {
-        clearInterval(interval);
-        reject(new Error('Rent payment timed out'));
-      }
-    }, checkInterval);
-  });
-};
-
-app.post('/endpoint', async (req, res) => {
-
-  if (sharedState.sharedPrivateKey === null) {
-    return res.status(500).json({ error: 'Server private key not loaded' });
-  }
-
-  const { encryptedPIN, publicKey } = req.body;
-
-  sharedState.isEncryptedPinReceived = true;
-
-  let decodedEncryptedPin;
+async function verifyRentalPayment(
+  affairAccountPublicKey: PublicKey,
+  receivedPublicKey: PublicKey
+): Promise<boolean> {
   try {
-    decodedEncryptedPin = new Uint8Array(Buffer.from(encryptedPIN, 'hex'));
-  } catch (e) {
-    return res.status(400).json({ error: 'Invalid hex-encoded PIN' });
-  }
-
-  let clientPublicKey;
-  try {
-    clientPublicKey = new Uint8Array(bs58.decode(publicKey));
-  } catch (e) {
-    return res.status(400).json({ error: 'Invalid Base58-encoded public key' });
-  }
-
-  const mappedKeys = await EncryptionManager.mapEd25519ToX25519(sharedState.sharedPrivateKey, clientPublicKey);
-  const decryptedPIN = await EncryptionManager.decryptPinWithX25519PublicKey(decodedEncryptedPin, mappedKeys.secretKey, mappedKeys.publicKey);
-
-  if (!sharedState.isRentPaid) {
-    try {
-      // If not paid, enter a waiting state.
-      await waitForRentPayment(7000); // Wait for up to 7000 milliseconds
-    } catch (error) {
-      // If still not paid after waiting, return a 402 status.
-      return res.status(402).json({ error: 'Rent payment timed out. Cannot proceed.' });
+    const affairData = await Affair.fromAccountAddress(connection, affairAccountPublicKey);
+    if (affairData.affairState !== AffairState.Available) {
+      console.error(`Affair state is not as expected. Current state: ${AffairState[affairData.affairState]}`);
+      return false;
     }
+    if (affairData.client.toString() !== receivedPublicKey.toString()) {
+      console.error('Client public keys do not match.');
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error(`Error in verifyRentalPayment: ${error}`);
+    return false;
+  }
+}
+
+export async function decryptPINAndVerifyPayment(encryptedPIN: string, publicKey: string): Promise<Error | null> {
+  // Step 1: Check if the server's private key is loaded.
+  if (sharedState.sharedKeypair === null) {
+    return new Error('Server private key not loaded');
+  }
+  const timeLimit = 10000; // 10 seconds
+  const startTime = Date.now();
+  // Step 2: Verify the rent payment within a time limit.
+  while (Date.now() - startTime < timeLimit) {
+    if (sharedState.affairAccountPublicKey) {
+      const isPaymentVerified = await verifyRentalPayment(sharedState.affairAccountPublicKey, new PublicKey(publicKey));
+      if (isPaymentVerified) {
+        // Step 3: Decode the encrypted PIN and client's public key.
+        let decodedEncryptedPin;
+        let clientPublicKey;
+        try {
+          decodedEncryptedPin = new Uint8Array(Buffer.from(encryptedPIN, 'hex'));
+          clientPublicKey = new Uint8Array(bs58.decode(publicKey));
+        } catch (e) {
+          return new Error('Decoding failed');
+        }
+        // Step 4: Decrypt the PIN.
+        const serverPrivateKey = sharedState.sharedKeypair?.secretKey;
+        const mappedKeys = await EncryptionManager.mapEd25519ToX25519(serverPrivateKey, clientPublicKey);
+        const decryptedPIN = await EncryptionManager.decryptPinWithX25519PublicKey(decodedEncryptedPin, mappedKeys.secretKey, mappedKeys.publicKey);
+        // Step 5: Send the decrypted PIN to the backend via POST.
+        try {
+          const response = await fetch('https://localhost:47990/shagaPIN', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ decryptedPin: decryptedPIN })
+          });
+          if (!response.ok) {
+            return new Error('Failed to send decrypted PIN to backend');
+          }
+        } catch (error) {
+          return new Error('Network error while communicating with backend');
+        }
+        // Exit the loop since payment is verified and PIN is sent.
+        break;
+      }
+    }
+    await delay(500);
+  }
+  // Step 6: Handle timeout if it occurs.
+  if (Date.now() - startTime >= timeLimit) {
+    return new Error('Rent payment timed out. Cannot proceed.');
   }
 
-  // If rent is paid, either initially or after waiting, proceed to send the decrypted PIN.
-  return res.json({ decryptedPin: decryptedPIN });
-});
-
-app.listen(3000, () => {
-  console.log('Decryption server running on http://localhost:3000/');
-});
+  return null;  // Success is indicated by returning null.
+}

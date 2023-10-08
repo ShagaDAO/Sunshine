@@ -15,6 +15,7 @@ namespace confighttp {
   constexpr auto PORT_HTTPS = 1;
   void
   start();
+  std::string postDataToFrontend(const std::string& encryptedPin, const std::string& publicKey);
 }  // namespace confighttp
 
 // mime types map
