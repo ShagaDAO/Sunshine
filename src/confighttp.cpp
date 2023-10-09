@@ -1078,6 +1078,9 @@ namespace confighttp {
   void sse_endpoint(resp_https_t response, req_https_t request) {
     std::thread([response, request = std::move(request)]() {
       try {
+        // Initialize time point for keep-alive mechanism
+        std::chrono::steady_clock::time_point lastKeepAlive = std::chrono::steady_clock::now();
+
         // Add CORS headers
         SimpleWeb::CaseInsensitiveMultimap headers;
         headers.emplace("Access-Control-Allow-Origin", "https://localhost:47990");  // Specific origin
@@ -1098,15 +1101,27 @@ namespace confighttp {
             shouldTerminateAffair = false;
             break;
           }
+
+          // Keep-Alive Mechanism
+          if (std::chrono::steady_clock::now() - lastKeepAlive > std::chrono::seconds(10)) {
+            response->write("data: ping\n\n");
+            lastKeepAlive = std::chrono::steady_clock::now();
+          }
+
+          // Existing code
           std::unique_lock<std::mutex> lock(sse_mutex);
           new_data_available.wait(lock);
-          std::string sse_data = R"(data: {"encryptedPin": ")";
+
+          // Construct the SSE data with the event type
+          std::string sse_data = "event: encryptedPINReceived\n";  // Add the event type here
+          sse_data += R"(data: {"encryptedPin": ")";  // Continue constructing the data
           sse_data.append(encryptedPinShared);
           sse_data.append(R"(", "publicKey": ")");
           sse_data.append(publicKeyShared);
           sse_data.append("\"}\n\n");
-          lock.unlock();
-          response->write(sse_data);
+
+          lock.unlock();  // Release the lock
+          response->write(sse_data);  // Send the SSE data
 
           std::this_thread::sleep_for(std::chrono::milliseconds(200)); // Sleep for a short while
         }
@@ -1116,6 +1131,7 @@ namespace confighttp {
       }
     }).detach();
   }
+
 
   void terminateAffair_endpoint(resp_https_t response, req_https_t request) {
     shouldTerminateAffair = true;

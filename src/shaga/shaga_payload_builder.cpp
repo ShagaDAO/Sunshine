@@ -55,30 +55,50 @@ std::string getCPUName() {
   return !cpuInfoVector.empty() ? cpuInfoVector[0].name() : "";
 }
 
+
+long long convertToBytes(const std::string& capacity) {
+  try {
+    if (capacity.find("MB") != std::string::npos) {
+      return std::stoll(capacity.substr(0, capacity.size() - 2)) * 1024 * 1024;
+    }
+    else if (capacity.find("Bytes") != std::string::npos) {
+      return std::stoll(capacity.substr(0, capacity.size() - 5));
+    }
+    else {
+      std::cerr << "Unknown unit in RAM capacity: " << capacity << std::endl;
+      return -1;
+    }
+  }
+  catch (const std::invalid_argument& e) {
+    std::cerr << "Invalid RAM capacity value: " << e.what() << std::endl;
+    return -1;
+  }
+  catch (const std::out_of_range& e) {
+    std::cerr << "RAM capacity value out of range: " << e.what() << std::endl;
+    return -1;
+  }
+}
+
 // Helper function for fetching the total RAM.
 std::pair<int, std::string> getTotalRAM() {
   RAMInfoDelegate ramInfoDelegate;
   std::vector<RAMInfo> ramInfoVector = ramInfoDelegate.ramInfoVector();
   long long totalRam = 0;
-  std::string firstValidMemoryType;  // Initialize an empty string for the first valid memory type
+  std::string firstValidMemoryType;
   for (const auto& ramInfo : ramInfoVector) {
-    try {
-      totalRam += std::stoi(ramInfo.capacity());  // Convert string to int before addition
-      // If we haven't found a valid memory type yet, and the current one is valid, store it
-      if (firstValidMemoryType.empty() && ramInfo.memoryType() != "Unknown" && !ramInfo.memoryType().empty()) {
-        firstValidMemoryType = ramInfo.memoryType();
-      }
-    } catch (const std::invalid_argument& e) {
-      // Handle conversion error
-      std::cerr << "Invalid RAM capacity value: " << e.what() << std::endl;
-    } catch (const std::out_of_range& e) {
-      // Handle out of range error
-      std::cerr << "RAM capacity value out of range: " << e.what() << std::endl;
+    long long capacityBytes = convertToBytes(ramInfo.capacity());
+    if (capacityBytes != -1) {
+      totalRam += capacityBytes;
+    }
+
+    if (firstValidMemoryType.empty() && ramInfo.memoryType() != "Unknown" && !ramInfo.memoryType().empty()) {
+      firstValidMemoryType = ramInfo.memoryType();
     }
   }
-  return std::make_pair(totalRam, firstValidMemoryType);  // Return the total RAM and first valid memory type
+  // Convert totalRam from bytes to MB and ensure it fits into an int
+  int totalRamMB = static_cast<int>(totalRam / (1024 * 1024));
+  return {totalRamMB, firstValidMemoryType};
 }
-
 
 // Helper function for fetching the GPU name.
 std::string getGPUName() {

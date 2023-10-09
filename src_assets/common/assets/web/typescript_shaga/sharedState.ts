@@ -63,10 +63,14 @@ class EventSourceSingleton {
 
     this.eventSource.onmessage = (event: MessageEvent) => {
       console.log("Received message", event.data);
+      if (event.data === 'ping') {
+        console.log('Received ping, connection is alive.');
+      }
     };
 
     this.eventSource.onerror = (error: Event) => {
       console.error(`EventSource failed: `, error);
+      console.log('EventSource readyState:', this.eventSource?.readyState);  // Additional logging
       this.closeEventSource();
       this.retryConnection(url);  // Attempt to reconnect
     };
