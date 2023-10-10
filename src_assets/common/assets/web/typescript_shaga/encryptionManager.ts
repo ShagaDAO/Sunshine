@@ -14,6 +14,11 @@ export interface EncryptResult {
   keyPair?: nacl.BoxKeyPair;
 }
 
+export interface MappedKeys {
+  secretKey: Uint8Array;
+  publicKey: Uint8Array;
+}
+
 
 
 export class EncryptionManager {

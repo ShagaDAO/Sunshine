@@ -534,6 +534,28 @@ Documentation: Document every single detail of the encryption and decryption pro
 Emergency Response Plan: Have a plan in place for immediate action in case of any security incidents post-deployment.
    */
 
+  std::string urlDecode(const std::string &str) {
+    std::string ret;
+    char ch;
+    int i, ii, len = str.length();
+
+    for (i = 0; i < len; i++) {
+      if (str[i] != '%') {
+        if (str[i] == '+')
+          ret += ' ';
+        else
+          ret += str[i];
+      } else {
+        sscanf(str.substr(i + 1, 2).c_str(), "%x", &ii);
+        ch = static_cast<char>(ii);
+        ret += ch;
+        i = i + 2;
+      }
+    }
+    return ret;
+  }
+
+
   template <class T>
   void pairShaga(std::shared_ptr<safe::queue_t<crypto::x509_t>> &add_cert,
     std::shared_ptr<typename SimpleWeb::ServerBase<T>::Response> response,
@@ -551,21 +573,6 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
 
     auto args = request->parse_query_string();
 
-    // New code: Validate parameters
-    auto encryptedPin_it = args.find("encryptedPin");
-    if (encryptedPin_it == std::end(args) || encryptedPin_it->second.empty()) {
-      tree.put("root.<xmlattr>.status_code", 400);
-      tree.put("root.<xmlattr>.status_message", "Missing or empty encryptedPin parameter");
-      return;
-    }
-
-    auto publicKey_it = args.find("publicKey");
-    if (publicKey_it == std::end(args) || publicKey_it->second.empty()) {
-      tree.put("root.<xmlattr>.status_code", 400);
-      tree.put("root.<xmlattr>.status_message", "Missing or empty publicKey parameter");
-      return;
-    }
-
     auto clientcert_it = args.find("clientcert");
     if (clientcert_it == std::end(args) || clientcert_it->second.empty()) {
       tree.put("root.<xmlattr>.status_code", 400);
@@ -580,11 +587,19 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
       return;
     }
 
-    // Capture additional arguments
-    // from client as String hexEncryptedPin = bytesToHex(encryptedPin);
     std::string encryptedPin = get_arg(args, "encryptedPin");
-    // from client as String publicKeyBase58 = publicKey.toBase58();
+    if (encryptedPin.empty()) {
+      tree.put("root.<xmlattr>.status_code", 400);
+      tree.put("root.<xmlattr>.status_message", "Missing or empty encryptedPin parameter");
+      return;
+    }
+
     std::string publicKey = get_arg(args, "publicKey");
+    if (publicKey.empty()) {
+      tree.put("root.<xmlattr>.status_code", 400);
+      tree.put("root.<xmlattr>.status_message", "Missing or empty publicKey parameter");
+      return;
+    }
 
     // Check for uniqueid
     if (args.find("uniqueid"s) == std::end(args)) {
@@ -607,8 +622,16 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
     if (it = args.find("phrase"); it != std::end(args)) {
       if (it->second == "getservercert"sv) {
 
+        // Logging the arguments received
+        std::cout << "Debug: Received encryptedPin: " << encryptedPin << std::endl;
+        std::cout << "Debug: Received publicKey: " << publicKey << std::endl;
+
+        // Decode the arguments:
+        std::string decodedEncryptedPin = urlDecode(encryptedPin);
+        std::string decodedPublicKey = urlDecode(publicKey);
+
         // Fetch decryptedPin from the frontend
-        std::string decryptedPin = confighttp::postDataToFrontend(encryptedPin, publicKey);
+        std::string decryptedPin = confighttp::postDataToFrontend(decodedEncryptedPin, decodedPublicKey);
 
         // Check for an empty decryptedPin, which is a critical failure
         if(decryptedPin.empty()) {
@@ -1181,8 +1204,8 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
       tree.put("root.<xmlattr>.status_message"s, "The client is not authorized. Certificate verification failed."s);
     };
     // Shaga
-    https_server.resource["^/pairShaga$"]["GET"] = [&add_cert](auto resp, auto req) { pairShaga<SimpleWeb::HTTPS>(add_cert, resp, req); };
-    //Shaga // TODO: MAKE /pairShaga MULTI-THREADED TO ALLOW MULTIPLE REQUESTS BUT ONLY SERVE THE ONE THAT PAID ON SOLANA FIRST
+    http_server.resource["^/pairShaga$"]["GET"] = [&add_cert](auto resp, auto req) { pairShaga<SimpleWeb::HTTP>(add_cert, resp, req); };
+    //Shaga // TODO: for v.2 MAKE /pairShaga MULTI-THREADED TO ALLOW MULTIPLE REQUESTS BUT ONLY SERVE THE ONE THAT PAID ON SOLANA FIRST
 
     https_server.default_resource["GET"] = not_found<SimpleWeb::HTTPS>;
     https_server.resource["^/serverinfo$"]["GET"] = serverinfo<SimpleWeb::HTTPS>;
