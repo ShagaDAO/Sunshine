@@ -1006,34 +1006,47 @@ namespace confighttp {
     }
   }
 
-  std::mutex sse_mutex;
-  std::string encryptedPinShared;
-  std::string publicKeyShared;
-  std::string received_decryptedPin;
-  std::condition_variable cv;
-  std::atomic<bool> shouldTerminateAffair(false);
-  std::condition_variable new_data_available;
+  // Global variables here
+  std::mutex decryptedPin_mutex;
+  std::condition_variable decryptedPin_cv;
+  SharedState pairingPayload;
+
+  void SharedState::setEncryptedPinAndKey(const std::string& pin, const std::string& key) {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    encryptedPinShared = pin;
+    publicKeyShared = key;
+  }
+
+  std::pair<std::string, std::string> SharedState::getEncryptedPinAndKey() {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    return {encryptedPinShared, publicKeyShared};
+  }
+
+  void SharedState::setReceivedDecryptedPin(const std::string& pin) {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    received_decryptedPin = pin;
+  }
+
+  std::string SharedState::getReceivedDecryptedPin() {
+    std::unique_lock<std::mutex> lock(state_mutex);
+    return received_decryptedPin;
+  }
 
 
   std::string postDataToFrontend(const std::string& encryptedPin, const std::string& publicKey) {
     try {
-      // Lock mutex and update shared state once
-      {
-        std::unique_lock<std::mutex> lock(sse_mutex);
-        encryptedPinShared = encryptedPin;
-        publicKeyShared = publicKey;
-        new_data_available.notify_one(); // Notify that new data is available
+      pairingPayload.setEncryptedPinAndKey(encryptedPin, publicKey);
 
-        if(cv.wait_for(lock, std::chrono::seconds(10)) == std::cv_status::timeout) {
-          throw std::runtime_error("Timed out waiting for decryptedPin");
-        }
+      std::unique_lock<std::mutex> lock(decryptedPin_mutex);
+      if(decryptedPin_cv.wait_for(lock, std::chrono::seconds(10)) == std::cv_status::timeout) {
+        throw std::runtime_error("Timed out waiting for decryptedPin");
       }
 
-      return received_decryptedPin;
+      return pairingPayload.getReceivedDecryptedPin();
     }
     catch (const std::runtime_error& e) {
-      std::cerr << "Runtime Error in postDataToFrontend: " << e.what() << std::endl;
-      return "";
+      std::cerr << "Runtime Error: " << e.what() << std::endl;
+      return "Runtime Error";
     }
     catch (const std::exception& e) {
       std::cerr << "General Exception in postDataToFrontend: " << e.what() << std::endl;
@@ -1058,13 +1071,11 @@ namespace confighttp {
       }
       // Get the decryptedPin value
       std::string decryptedPin = decryptedPin_it->second;
-      // Lock the mutex and set the received_decryptedPin
-      {
-        std::unique_lock<std::mutex> lock(sse_mutex);
-        received_decryptedPin = decryptedPin;
-      }
-      // Signal postDataToFrontend that it can proceed
-      cv.notify_one();
+      pairingPayload.setReceivedDecryptedPin(decryptedPin);
+
+      std::unique_lock<std::mutex> lock(decryptedPin_mutex);
+      decryptedPin_cv.notify_one();
+
       // Send a response to indicate success
       response->write(SimpleWeb::StatusCode::success_ok, "Received decryptedPin successfully");
     }
@@ -1075,69 +1086,69 @@ namespace confighttp {
   }
 
 
-  void sse_endpoint(resp_https_t response, req_https_t request) {
-    std::thread([response, request = std::move(request)]() {
-      try {
-        // Initialize time point for keep-alive mechanism
-        std::chrono::steady_clock::time_point lastKeepAlive = std::chrono::steady_clock::now();
+  void checkForPair_endpoint(resp_https_t response, req_https_t request) {
+    if (pairingPayload.isNull()) {
+      pairingPayload.initialize();
+    }
 
-        // Add CORS headers
-        SimpleWeb::CaseInsensitiveMultimap headers;
-        headers.emplace("Access-Control-Allow-Origin", "https://localhost:47990");  // Specific origin
-        headers.emplace("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        headers.emplace("Access-Control-Allow-Headers", "Content-Type");
+    auto [encryptedPin, publicKey] = pairingPayload.getEncryptedPinAndKey();
 
-        // SSE-specific headers
-        headers.emplace("Content-Type", "text/event-stream");
-        headers.emplace("Cache-Control", "no-cache");
-        headers.emplace("Connection", "keep-alive");
+    if(!encryptedPin.empty() && !publicKey.empty()) {
+      // Prepare the response JSON
+      std::string responseData = R"({ "encryptedPin": ")" + encryptedPin + R"(", "publicKey": ")" + publicKey + R"(" })";
+      pairingPayload.setEncryptedPinAndKey("", ""); // Clear the variables
 
-        // Write headers
-        response->write(SimpleWeb::StatusCode::success_ok, headers);
-
-        // Keep the connection open
-        while (true) {
-          if (shouldTerminateAffair) {
-            shouldTerminateAffair = false;
-            break;
-          }
-
-          // Keep-Alive Mechanism
-          if (std::chrono::steady_clock::now() - lastKeepAlive > std::chrono::seconds(10)) {
-            response->write("data: ping\n\n");
-            lastKeepAlive = std::chrono::steady_clock::now();
-          }
-
-          // Existing code
-          std::unique_lock<std::mutex> lock(sse_mutex);
-          new_data_available.wait(lock);
-
-          // Construct the SSE data with the event type
-          std::string sse_data = "event: encryptedPINReceived\n";  // Add the event type here
-          sse_data += R"(data: {"encryptedPin": ")";  // Continue constructing the data
-          sse_data.append(encryptedPinShared);
-          sse_data.append(R"(", "publicKey": ")");
-          sse_data.append(publicKeyShared);
-          sse_data.append("\"}\n\n");
-
-          lock.unlock();  // Release the lock
-          response->write(sse_data);  // Send the SSE data
-
-          std::this_thread::sleep_for(std::chrono::milliseconds(200)); // Sleep for a short while
-        }
-      }
-      catch (const std::exception& e) {
-        std::cerr << "SSE Endpoint Error: " << e.what() << std::endl;
-      }
-    }).detach();
+      // Write the response
+      response->write(SimpleWeb::StatusCode::success_ok, responseData);
+    } else {
+      response->write(SimpleWeb::StatusCode::success_ok, R"({ "status": "Not yet" })");
+    }
   }
 
 
-  void terminateAffair_endpoint(resp_https_t response, req_https_t request) {
-    shouldTerminateAffair = true;
-    new_data_available.notify_all();
-    response->write(SimpleWeb::StatusCode::success_ok, "Affair terminated");
+  void backupSharedStateToBackend_endpoint(resp_https_t response, req_https_t request) {
+    try {
+      std::string sharedState = request->content.string();
+      std::ofstream file("sharedState.txt", std::ios::out);
+
+      if (file.is_open()) {
+        file << sharedState;
+        file.close();
+        response->write(SimpleWeb::StatusCode::success_ok, "Shared state stored successfully.");
+      } else {
+        throw std::ios_base::failure("Failed to open or create the sharedState.txt file.");
+      }
+    }
+    catch(const std::exception& e) {
+      response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
+    }
   }
+
+
+  void loadSharedStateFromBackend_endpoint(resp_https_t response, req_https_t request) {
+    try {
+      if (!std::filesystem::exists("sharedState.txt")) {
+        std::ofstream createFile("sharedState.txt", std::ios::out);
+        createFile << "{}"; // Initialize with an empty JSON object
+        createFile.close();
+      }
+
+      std::ifstream file("sharedState.txt");
+      std::string sharedState;
+
+      if (file.is_open()) {
+        std::getline(file, sharedState);
+        file.close();
+        response->write(SimpleWeb::StatusCode::success_ok, sharedState);
+      } else {
+        throw std::ios_base::failure("Failed to open the sharedState.txt file.");
+      }
+    }
+    catch(const std::exception& e) {
+      response->write(SimpleWeb::StatusCode::client_error_bad_request, e.what());
+    }
+  }
+
 
 
   void
@@ -1186,9 +1197,10 @@ namespace confighttp {
     server.resource["^/api/get_wallet_status$"]["GET"] = fetchWalletStatus;
     server.resource["^/api/store_wallet_status$"]["POST"] = storeWalletStatus;
     server.resource["^/api/get_salt$"]["GET"] = getSalt;
-    server.resource["^/shagaPIN$"]["POST"] = shagaPIN_endpoint;
-    server.resource["^/sse$"]["GET"] = sse_endpoint;
-    server.resource["^/terminateAffair$"]["POST"] = terminateAffair_endpoint;
+    server.resource["^/api/shagaPIN$"]["POST"] = shagaPIN_endpoint; // TODO: MAKE ALL ENDPOINTS NAMING CONSISTENT
+    server.resource["^/api/checkForPair"]["GET"] = checkForPair_endpoint;
+    server.resource["^/api/backupSharedState$"]["POST"] = backupSharedStateToBackend_endpoint;
+    server.resource["^/api/loadSharedState$"]["GET"] = loadSharedStateFromBackend_endpoint;
     // Shaga
     server.config.reuse_address = true;
     server.config.address = "0.0.0.0"s;

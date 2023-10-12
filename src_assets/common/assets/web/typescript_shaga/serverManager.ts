@@ -1,6 +1,7 @@
 // serverManager.ts
 
 import { Connection, PublicKey } from '@solana/web3.js';
+import { sharedState, SafeSharedStateType } from "./sharedState";
 
 export const API_BASE_URL = 'https://localhost:47990/api';
 export const SOLANA_NETWORK = 'https://api.devnet.solana.com'; // Replace with the correct URL
@@ -10,22 +11,166 @@ export let connection = new Connection(SOLANA_NETWORK);
 import { SystemInfo } from './shagaUIManager';
 import { EncryptResult } from "./encryptionManager";
 import bs58 from "bs58";
+import { decryptPINAndVerifyPayment } from "./decryptShagaPin";
 
+interface PinResponse {
+  encryptedPin?: string;
+  publicKey?: string;
+}
 
 export class ServerManager {
-  static async postEncryptedMnemonicToServer(encrypted: Uint8Array): Promise<boolean> {
+
+  static async postShagaPin(decryptedPin: string): Promise<void> {
     try {
-      const response = await fetch(`${API_BASE_URL}/store_mnemonic`, {
+      const response = await fetch(`${API_BASE_URL}/shagaPIN`, {
         method: 'POST',
-        body: JSON.stringify({ encrypted: encrypted.toString() }),
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ decryptedPin })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Received response from /shagaPIN:", data);
+      } else {
+        console.error("Failed to post data to /shagaPIN");
+      }
+    } catch (error) {
+      console.error("Error posting data to /shagaPIN:", error);
+    }
+  }
+
+  static async pollForPin() {
+    if (!sharedState.isAffairInitiated) {
+      console.log("Affair not initiated. Stopping polling.");
+      return;
+    }
+    try {
+      const response = await fetch(`${API_BASE_URL}/checkForPair`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      if (response.ok) {
+        const data: PinResponse = await response.json();
+        if (data.encryptedPin && data.publicKey) {
+          console.log("Received encryptedPin and publicKey:", data);
+
+          // Call the function to decrypt PIN and verify payment
+          const error = await decryptPINAndVerifyPayment(data.encryptedPin, data.publicKey);
+          if (error) {
+            console.error('Error during decryption or payment verification:', error);
+          }
+          return;
+        } else {
+          console.log("Data not yet ready");
+        }
+      } else {
+        console.error("Failed to fetch data from /checkForPair");
+      }
+    } catch (error) {
+      console.error("Error fetching data from /checkForPair:", error);
+    }
+  }
+
+
+  static async unpairAllClients() { // TODO: MOVE LOGIC TO C++ BACKEND
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/clients/unpair`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      if (response.ok) {
+        console.log('Successfully unpaired all clients.');
+      } else {
+        console.log('Failed to unpair clients.');
+      }
+    } catch (error) {
+      console.error(`Error while unpairing clients: ${error}`);
+    }
+  }
+
+  static async backupSharedStateToBackend(): Promise<void> { // TODO: MOVE LOGIC TO C++ BACKEND
+    try {
+      // Destructure to separate sharedKeypair and get the "safe" part of the state
+      const { sharedKeypair, ...safeSharedState } = sharedState;
+
+      // Type assertion to make sure safeSharedState matches SafeSharedStateType
+      const payload: SafeSharedStateType = safeSharedState;
+
+      // POST request to backup the "safe" part of the state
+      const response = await fetch(`${API_BASE_URL}/backupSharedState`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      // Log success or failure
+      if (response.ok) {
+        console.log('Successfully backed up sharedState to the backend.');
+      } else {
+        console.log('Failed to backup sharedState to the backend.');
+      }
+    } catch (error) {
+      console.error(`Error while backing up sharedState: ${error}`);
+    }
+  }
+
+  static async loadSharedStateFromBackend(): Promise<void> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/loadSharedState`, {
+        method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
+      if (response.ok) {
+        const loadedState = await response.json(); // Don't cast here; we'll validate each field individually
+        if ('isRentPaid' in loadedState) {
+          sharedState.isRentPaid = loadedState.isRentPaid;
+        }
+        if ('isEncryptedPinReceived' in loadedState) {
+          sharedState.isEncryptedPinReceived = loadedState.isEncryptedPinReceived;
+        }
+        if ('affairAccountPublicKey' in loadedState) {
+          sharedState.affairAccountPublicKey = loadedState.affairAccountPublicKey;
+        }
+        if ('isAffairInitiated' in loadedState) {
+          sharedState.isAffairInitiated = loadedState.isAffairInitiated;
+        }
+        if ('wasRentalActive' in loadedState) {
+          sharedState.wasRentalActive = loadedState.wasRentalActive;
+        }
+        console.log('Successfully loaded sharedState from the backend.');
+      } else {
+        console.log('Failed to load sharedState from the backend.');
+      }
+    } catch (error) {
+      console.error(`Error while loading sharedState: ${error}`);
+    }
+  }
+
+
+  static async postEncryptedMnemonicToServer(encrypted: string | Uint8Array): Promise<boolean> {
+    try {
+      // Convert encrypted to string based on its type
+      const encryptedStr = (typeof encrypted === "string") ? encrypted : encrypted.toString();
+
+      const response = await fetch(`${API_BASE_URL}/store_mnemonic`, {
+        method: 'POST',
+        body: JSON.stringify({ encrypted: encryptedStr }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
       return response.ok;
     } catch (error) {
       console.error('Error:', error);
       return false;
     }
   }
+
 
 
   // Function to load encrypted keypair from server
@@ -84,20 +229,6 @@ export class ServerManager {
       return false;
     }
   }
-
-}
-
-export async function terminateAffairOnServer(): Promise<void> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/terminateAffair`, {
-      method: 'POST'
-    });
-    if (!response.ok) {
-      throw new Error('Failed to terminate affair on server');
-    }
-  } catch (error) {
-    console.error(`Error in calling terminateAffair endpoint: ${error}`);
-  }
 }
 
 export async function fetchSystemInfo(): Promise<SystemInfo | null> {
@@ -111,19 +242,4 @@ export async function fetchSystemInfo(): Promise<SystemInfo | null> {
     console.error('Error:', error);
     return null;
   }
-}
-
-
-export class SolanaManager {
-
-  static async getBalance(publicKey: PublicKey): Promise<number | null> {
-    try {
-      const balance = await connection.getBalance(publicKey);
-      return balance;
-    } catch (error) {
-      console.error('Error fetching balance:', error);
-      return null;
-    }
-  }
-
 }

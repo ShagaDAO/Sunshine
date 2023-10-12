@@ -3,8 +3,7 @@
 import * as bip39 from 'bip39';
 import { Keypair } from "@solana/web3.js";
 import { EncryptionManager } from './encryptionManager';
-import { ServerManager } from './serverManager';
-import { SolanaManager } from './serverManager';
+import { connection, ServerManager } from "./serverManager";
 import { fetchAndDisplayBalance, getWalletStatus, loadAndDecryptKeypair, messageDisplay } from "./shagaUIManager";
 import { sharedState } from "./sharedState";
 
@@ -89,7 +88,7 @@ export async function createWallet() {
 
     console.log(`Wallet Created. Public Key: ${keypair.publicKey}`);
     // Fetch and display the balance of the new wallet
-    const balance = await SolanaManager.getBalance(keypair.publicKey);
+    const balance = await connection.getBalance(keypair.publicKey);
     if (balance !== null) {
       console.log(`Initial Wallet Balance: ${balance} LAMPORTS`);
     } else {

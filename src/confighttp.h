@@ -12,6 +12,39 @@
 #define WEB_DIR SUNSHINE_ASSETS_DIR "/web/"
 
 namespace confighttp {
+
+
+  class SharedState {
+  private:
+    std::mutex state_mutex;
+    std::string encryptedPinShared;
+    std::string publicKeyShared;
+    std::string received_decryptedPin;
+    bool is_initialized;
+
+  public:
+    SharedState() : is_initialized(false) {} // constructor to set is_initialized to false
+
+    void initialize() {
+      std::lock_guard<std::mutex> lock(state_mutex);
+      encryptedPinShared = "";
+      publicKeyShared = "";
+      received_decryptedPin = "";
+      is_initialized = true;
+    }
+
+    bool isNull() {
+      std::lock_guard<std::mutex> lock(state_mutex);
+      return !is_initialized;
+    }
+
+    void setEncryptedPinAndKey(const std::string& pin, const std::string& key);
+    std::pair<std::string, std::string> getEncryptedPinAndKey();
+    void setReceivedDecryptedPin(const std::string& pin);
+    std::string getReceivedDecryptedPin();
+  };
+
+
   constexpr auto PORT_HTTPS = 1;
   void
   start();

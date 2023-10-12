@@ -4,7 +4,7 @@ import { EncryptionManager } from './encryptionManager';
 import bs58 from 'bs58';
 import { sharedState } from './sharedState';
 import { PublicKey } from "@solana/web3.js";
-import { connection } from "./serverManager";
+import { connection, ServerManager } from "./serverManager";
 import { Affair, AffairState } from "../../../../../third-party/shaga-program/app/shaga_joe/src/generated";
 
 
@@ -33,74 +33,44 @@ async function verifyRentalPayment(
   }
 }
 
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(Math.ceil(hex.length / 2));
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
-  }
-  return bytes;
-}
-
-export async function decryptPINAndVerifyPayment(encryptedPIN: string, publicKey: string): Promise<Error | null> {
+export async function decryptPINAndVerifyPayment(encryptedPIN: string, clientBase58PublicKey: string): Promise<Error | null> { // TODO: This logic is too fragile to stay on the frontend, v2 moves everything to the C++ backemd
   // Step 1: Check if the server's private key is loaded.
   if (sharedState.sharedKeypair === null) {
     return new Error('Server private key not loaded');
   }
+  // Step 2: Decode the encrypted PIN and client's public key.
+  let decodedEncryptedPin: Uint8Array;
+  let clientPublicKeyBytes: Uint8Array;
+  try {
+    // Convert the Hex Encoded PIN to Bytes
+    decodedEncryptedPin = await EncryptionManager.hexToBytes(encryptedPIN);
+    // Decode the Base58 Encoded Public Key
+    clientPublicKeyBytes = new Uint8Array(bs58.decode(clientBase58PublicKey));
+  } catch (e) {
+    if (e instanceof Error) {
+      return new Error('Decoding failed: ' + e.message);
+    } else {
+      return new Error('Decoding failed');
+    }
+  }
+  // Step 3: Decrypt the PIN
+  if (!decodedEncryptedPin || !clientPublicKeyBytes || !sharedState.sharedKeypair?.secretKey) {
+    return new Error('Required variables are undefined');
+  }
+  const decryptedPIN = await EncryptionManager.decryptAndRetrievePIN(decodedEncryptedPin, sharedState.sharedKeypair.secretKey, clientPublicKeyBytes);
+  // Step 4: Verify the rent payment within a time limit.
   const timeLimit = 10000; // 10 seconds
   const startTime = Date.now();
-  // Step 2: Verify the rent payment within a time limit.
   while (Date.now() - startTime < timeLimit) {
     if (sharedState.affairAccountPublicKey) {
-      const isPaymentVerified = await verifyRentalPayment(sharedState.affairAccountPublicKey, new PublicKey(publicKey));
+      const isPaymentVerified = await verifyRentalPayment(sharedState.affairAccountPublicKey, new PublicKey(clientBase58PublicKey));
       if (isPaymentVerified) {
-        // Step 3: Decode the encrypted PIN and client's public key.
-        let decodedEncryptedPin: Uint8Array | undefined;
-        let clientPublicKey: Uint8Array | undefined;
-        // Check if encryptedPIN and publicKey are defined and not empty.
-        if (!encryptedPIN || !publicKey) {
-          return new Error('encryptedPIN or publicKey is undefined or empty');
-        }
-        try {
-          // Convert the Hex Encoded PIN to Bytes
-          decodedEncryptedPin = hexToBytes(encryptedPIN);
-          // Decode the Base58 Encoded Public Key
-          clientPublicKey = new Uint8Array(bs58.decode(publicKey));
-        } catch (e) {
-          if (e instanceof Error) {
-            return new Error('Decoding failed: ' + e.message);
-          } else {
-            return new Error('Decoding failed');
-          }
-        }
-        // Make sure decodedEncryptedPin and clientPublicKey are properly initialized.
-        if (!decodedEncryptedPin || !clientPublicKey) {
-          return new Error('Decoded variables are undefined');
-        }
-        // Step 4: Decrypt the PIN
-        if (!sharedState.sharedKeypair?.secretKey) {
-          return new Error('Server private key not loaded');
-        }
-        const serverPrivateKey = sharedState.sharedKeypair.secretKey;
-        const mappedKeys = await EncryptionManager.mapEd25519ToX25519(serverPrivateKey, clientPublicKey);
-        // Make sure mappedKeys are properly initialized before proceeding.
-        if (!mappedKeys.secretKey || !mappedKeys.publicKey) {
-          return new Error('Mapped keys are undefined');
-        }
-        const decryptedPIN = await EncryptionManager.decryptPinWithX25519PublicKey(decodedEncryptedPin, mappedKeys.secretKey, mappedKeys.publicKey);
         // Step 5: Send the decrypted PIN to the backend via POST.
         try {
-          const response = await fetch('https://localhost:47990/shagaPIN', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ decryptedPin: decryptedPIN })
-          });
-          if (!response.ok) {
-            return new Error('Failed to send decrypted PIN to backend');
-          }
+          await ServerManager.postShagaPin(decryptedPIN);
         } catch (error) {
           return new Error('Network error while communicating with backend');
         }
-        // Exit the loop since payment is verified and PIN is sent.
         break;
       }
     }
@@ -110,6 +80,5 @@ export async function decryptPINAndVerifyPayment(encryptedPIN: string, publicKey
   if (Date.now() - startTime >= timeLimit) {
     return new Error('Rent payment timed out. Cannot proceed.');
   }
-
   return null;  // Success is indicated by returning null.
 }

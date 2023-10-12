@@ -1203,6 +1203,9 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
       tree.put("root.<xmlattr>.query"s, req->path);
       tree.put("root.<xmlattr>.status_message"s, "The client is not authorized. Certificate verification failed."s);
     };
+
+
+
     // Shaga
     http_server.resource["^/pairShaga$"]["GET"] = [&add_cert](auto resp, auto req) { pairShaga<SimpleWeb::HTTP>(add_cert, resp, req); };
     //Shaga // TODO: for v.2 MAKE /pairShaga MULTI-THREADED TO ALLOW MULTIPLE REQUESTS BUT ONLY SERVE THE ONE THAT PAID ON SOLANA FIRST

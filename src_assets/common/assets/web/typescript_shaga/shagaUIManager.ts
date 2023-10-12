@@ -4,8 +4,7 @@ import { connection, ServerManager } from "./serverManager";
 import { createWallet } from "./createWallet";
 import { startAffair } from "./initializeAffair";
 import { terminateAffairButton } from "./shagaTransactions";
-import EventSourceSingleton, { initializeSSE, sharedState, terminateSSE } from "./sharedState";
-import { decryptPINAndVerifyPayment } from "./decryptShagaPin";
+import  { sharedState } from "./sharedState";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { EncryptionManager } from "./encryptionManager";
 import * as QRCode from 'qrcode';
@@ -23,50 +22,18 @@ export interface SystemInfo {
 let qrCodeDisplayed = false;
 
 export function initializeShagaUI(walletExists: boolean, passwordEnteredSuccessfully: boolean) {
-  const eventSourceInstance = EventSourceSingleton.getInstance();
 
   const startShagaSessionBtn = document.getElementById('startShagaSessionBtn') as HTMLButtonElement;
   const createWalletBtn = document.getElementById('createWalletBtn') as HTMLButtonElement;
   const terminateSessionBtn = document.getElementById('terminateSessionBtn') as HTMLButtonElement;
   const systemInfoDisplay = document.getElementById('systemInfoDisplay') as HTMLElement;
 
-  // New button references
-  const testSSEOpenBtn = document.getElementById('testSSEOpenBtn') as HTMLButtonElement;
-  const testSSECloseBtn = document.getElementById('testSSECloseBtn') as HTMLButtonElement;
-
   fetchAndDisplayBalance();
-
-  if (testSSEOpenBtn && testSSECloseBtn) {
-    testSSEOpenBtn.addEventListener('click', () => {
-      console.log("Test SSE Open clicked");
-      initializeSSE();
-    });
-    testSSECloseBtn.addEventListener('click', () => {
-      console.log("Test SSE Close clicked");
-      terminateSSE();
-    });
-  }
 
   if (!startShagaSessionBtn || !createWalletBtn || !systemInfoDisplay || !messageDisplay) {
     console.error('Essential HTML elements not found.');
     return;
   }
-
-  // Set up SSE listener for "encryptedPINReceived"
-  eventSourceInstance.eventSource?.addEventListener("encryptedPINReceived", async (event: any) => {
-    const receivedData = JSON.parse(event.data);
-    const { encryptedPIN, publicKey } = receivedData;
-    try {
-      const result = await decryptPINAndVerifyPayment(encryptedPIN, publicKey);
-      if (result instanceof Error) {
-        console.error(`Failed to decrypt PIN and verify payment: ${result.message}`);
-      } else {
-        console.log('Decryption and payment verification successful.');
-      }
-    } catch (error) {
-      console.error(`Unexpected error: ${error}`);
-    }
-  });
 
   // Terminate session
   terminateSessionBtn.addEventListener('click', async () => {
@@ -267,22 +234,34 @@ export async function getWalletStatus(): Promise<boolean> {
   }
 }
 
-
 // Function to initialize everything
 export async function initializeApp(): Promise<void> {
   let passwordEnteredSuccessfully = false;
   try {
+    // Get the wallet status
     const walletStatus = await getWalletStatus();
+    // Always load the shared state
+    await ServerManager.loadSharedStateFromBackend();
+    console.log('SharedState has been loaded.');
+    // If the wallet is active, proceed to load and decrypt the keypair
     if (walletStatus) {
+      // Timeout after 10 seconds
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Keypair loading timeout')), 10000));
+
       try {
-        await loadAndDecryptKeypair();
-        console.log('Keypair should be loaded now:', sharedState.sharedKeypair);
+        // Wait for either the keypair to load or the timeout to occur
+        await Promise.race([
+          loadAndDecryptKeypair(),
+          timeoutPromise
+        ]);
         passwordEnteredSuccessfully = true;
       } catch (error) {
-        console.error(`Failed to load and decrypt keypair: ${error}`);
+        // Log any errors that occur during the loading of the keypair
+        console.error(`An error occurred while loading keypair: ${error}`);
       }
     }
-    initializeShagaUI(walletStatus, passwordEnteredSuccessfully);  // Directly pass the boolean variable
+    // Initialize the UI, passing in the wallet status and whether the password was entered successfully
+    initializeShagaUI(walletStatus, passwordEnteredSuccessfully);
   } catch (error) {
     console.error(`An error occurred: ${error}`);
   }

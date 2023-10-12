@@ -51,8 +51,8 @@ export async function startAffair() {
 
 // Now you have the shared keypair, let's check if an affair already exists
   if (sharedState.sharedKeypair) {
-    const affairExists = await checkIfAffairExists(sharedState.sharedKeypair, connection);
-    if (affairExists) {
+    const accountInfo = await checkIfAffairExists(); // Updated function that returns AccountInfo<Buffer> | null
+    if (accountInfo !== null) { // Checking if affair exists
       console.error("Affair already initialized");
       let errorMessageElement = document.getElementById("error-message");
       if (errorMessageElement) {
@@ -71,7 +71,6 @@ export async function startAffair() {
       console.error("Element with id 'error-message' was not found.");
     }
   }
-
 
 
   await (async () => {
@@ -98,7 +97,7 @@ export async function startAffair() {
         console.error('An error occurred during password verification. Please try again.');
       }
     }
-// Fetch System Info Loop
+    // Fetch System Info Loop
     while (!isSystemInfoValid) {
       try {
         systemInfo = await fetchSystemInfo();
@@ -170,16 +169,27 @@ export async function startAffair() {
     };
     console.log(`Calculated affair termination time: ${affairTerminationTime}`);
     // Create session account on Solana & save sessionAccountPublicKey in sharedState for future use
-    if (sharedState.sharedKeypair) {
-      try {
-        sharedState.affairAccountPublicKey = await createShagaAffair(payload, sharedState.sharedKeypair);
-        console.log('Successfully created Shaga affair.');
-      } catch (error) {
-        console.error('Failed to create Shaga affair:', error);
+      if (sharedState.sharedKeypair) {
+        try {
+          await createShagaAffair(payload, sharedState.sharedKeypair);
+          // Initiate the polling loop
+          initiatePollingLoop();
+          console.log('Successfully created Shaga affair.');
+        } catch (error) {
+          console.error('Failed to create Shaga affair:', error);
+          return;
+        }
+      } else {
+        console.error('System info is null. Cannot proceed.');
+        return;
       }
-    } else {
-      console.error('System info is null. Cannot proceed.');
-    }
     }
   })();
+}
+
+async function initiatePollingLoop() {
+  while (!sharedState.wasRentalActive) {
+    await ServerManager.pollForPin();
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
 }

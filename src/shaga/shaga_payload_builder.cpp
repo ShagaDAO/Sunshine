@@ -83,10 +83,25 @@ long long convertToBytes(const std::string& capacity) {
 std::pair<int, std::string> getTotalRAM() {
   RAMInfoDelegate ramInfoDelegate;
   std::vector<RAMInfo> ramInfoVector = ramInfoDelegate.ramInfoVector();
+
   long long totalRam = 0;
   std::string firstValidMemoryType;
+
   for (const auto& ramInfo : ramInfoVector) {
-    long long capacityBytes = convertToBytes(ramInfo.capacity());
+    std::string capacityStr = ramInfo.capacity();
+    if (capacityStr == "Unknown") {
+      continue;
+    }
+
+    std::size_t startPos = capacityStr.find("(");
+    std::size_t endPos = capacityStr.find(" Bytes)");
+    if (startPos == std::string::npos || endPos == std::string::npos) {
+      continue; // Skip if the capacity is not in the expected format
+    }
+
+    std::string byteCountStr = capacityStr.substr(startPos + 1, endPos - startPos - 1);
+    long long capacityBytes = std::stoll(byteCountStr); // Convert the string to long long
+
     if (capacityBytes != -1) {
       totalRam += capacityBytes;
     }
@@ -99,6 +114,7 @@ std::pair<int, std::string> getTotalRAM() {
   int totalRamMB = static_cast<int>(totalRam / (1024 * 1024));
   return {totalRamMB, firstValidMemoryType};
 }
+
 
 // Helper function for fetching the GPU name.
 std::string getGPUName() {

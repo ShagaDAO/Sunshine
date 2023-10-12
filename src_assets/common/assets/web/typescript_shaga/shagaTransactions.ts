@@ -1,15 +1,17 @@
 // shagaTransactions.ts
 
 import { loadAndDecryptKeypair, SystemInfo } from "./shagaUIManager";
-import {  Affair,  AffairPayload,  createInitializeLenderInstruction, createTerminateAffairInstruction,
-  createTerminateVacantAffairInstruction} from "../../../../../third-party/shaga-program/app/shaga_joe/src/generated";
+import {
+  Affair, AffairPayload, AffairState, createInitializeLenderInstruction, createTerminateAffairInstruction,
+  createTerminateVacantAffairInstruction
+} from "../../../../../third-party/shaga-program/app/shaga_joe/src/generated";
 import { createAffair, createLender,terminateAffair } from "../../../../../third-party/shaga-program/app/shaga_joe/src/custom";
-import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
-import { connection, terminateAffairOnServer } from "./serverManager";
+import { AccountInfo, Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import { API_BASE_URL, connection, ServerManager } from "./serverManager";
 import {  signAndSendTransactionInstructionsModified} from "../../../../../third-party/shaga-program/app/shaga_joe/src/utils";
 import {  findAffair,  findAffairList,  findLender,  findRentAccount,
   findRentEscrow, findThreadAuthority, findVault} from "../../../../../third-party/shaga-program/app/shaga_joe/src/pda";
-import { sharedState, initializeSSE, terminateSSE } from "./sharedState";
+import { refreshInitiateAffair, refreshTerminateAffair, refreshTerminateRental, sharedState } from "./sharedState";
 import BN from "bn.js";
 
 // Define the path to the file where lender states are stored TODO: Write backend endpoint & append there
@@ -48,28 +50,64 @@ function validateAffairPayload(payload: AffairPayload): boolean {
 }
 
 
-export async function checkIfAffairExists(serverKeypair: Keypair, connection: Connection): Promise<boolean> {
-  // Step 1: Check if the affair is already initialized
-  const [affairPDA] = findAffair(serverKeypair.publicKey);
-
-  let accountInfo;
-  try {
-    accountInfo = await connection.getAccountInfo(affairPDA);
-  } catch (error) {
-    console.error(`Error checking affair initialization: ${error}`);
-    return false;  // Return false on failure to even check the account
+// TODO: MOVE MOST OF THE CODE TO THE BACKEND, THIS IS UNSUSTAINABLE AND BAD PRACTICE, IF THE USER IS AFK
+// Main function to check the rental state
+export async function checkRentalState(): Promise<void> {
+  // Step 1: Check if wasRentalActive is false
+  if (!sharedState.wasRentalActive) {
+    console.log('Rental is not active. No need to check.');
+    return;
   }
 
+  const accountInfo = await checkIfAffairExists();
+
+  if (accountInfo === null) {
+    console.log('Account does not exist, likely terminated by the system.');
+    await refreshTerminateAffair();
+    await ServerManager.unpairAllClients();
+    return;
+  }
+
+  let affair;
+  try {
+    [affair] = Affair.fromAccountInfo(accountInfo);
+  } catch (error) {
+    console.error(`Error deserializing affair state: ${error}`);
+    return;
+  }
+
+  if (affair.affairState === AffairState.Available) {
+    console.log('Affair is now AVAILABLE, rental was canceled.');
+    await refreshTerminateRental();
+    await ServerManager.unpairAllClients();
+  } else {
+    console.log('Affair is still UNAVAILABLE, no action needed.');
+    // Do nothing
+  }
+}
+
+
+
+export async function checkIfAffairExists(): Promise<AccountInfo<Buffer> | null> {
+  let accountInfo: AccountInfo<Buffer> | null = null;
+  try {
+    accountInfo = await connection.getAccountInfo(<PublicKey>sharedState.affairAccountPublicKey);
+  } catch (error) {
+    console.error(`Error checking affair initialization: ${error}`);
+    return null;
+  }
   // Update the shared state
   sharedState.isAffairInitiated = accountInfo !== null;
-  return sharedState.isAffairInitiated;
+
+  return accountInfo;
 }
+
 
 
 export async function createShagaAffair(
   payload: { systemInfo: SystemInfo, solPerHour: number, affairTerminationTime: number },
   serverKeypair: Keypair
-): Promise<PublicKey> {
+): Promise<void> {
 
   // Step 0: Initialize the lender if necessary
   const lenderInitialized = await initializeLenderIfNecessary(serverKeypair, connection);
@@ -132,17 +170,13 @@ export async function createShagaAffair(
     // The transaction is already confirmed, so no need to check again
     console.log(`Transaction ${signature} confirmed`);
     //transactionLog('createAffair', signature); removed but would be useful to add
-
-    // Activate SSE endpoint here
-    initializeSSE();  // Initialize the SSE connection
-
     // Calculate the return
     const [affairAccountPublicKey] = findAffair(serverKeypair.publicKey);
+    await refreshInitiateAffair(affairAccountPublicKey);
 
-    return affairAccountPublicKey;
   } catch (error) {
     console.error(`Transaction failed: ${error}`);
-    throw new Error(`Transaction failed: ${error}`);
+    throw new Error(`Transaction failed with additional context: ${error}`);
   }
 }
 
@@ -254,8 +288,8 @@ export async function terminateAffairButton() {
     console.log(`Transaction ${signature} confirmed`);
     console.log("Affair terminated successfully");
     // Step 6: Terminate any additional connections or threads
-    await terminateAffairOnServer();
-    terminateSSE();
+    await refreshTerminateAffair();
+    await ServerManager.unpairAllClients() // TODO: Check if needs to also call close app or if it's automated
 
   } catch (error) {
     console.error(`Error in terminating affair: ${error}`);

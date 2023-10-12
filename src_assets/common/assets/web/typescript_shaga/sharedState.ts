@@ -1,101 +1,82 @@
 // sharedState.ts
 
 import { Keypair, PublicKey } from '@solana/web3.js';
+import { checkRentalState } from "./shagaTransactions";
+import { ServerManager } from "./serverManager";
 
-export const sharedState = {
-  isRentPaid: false,
-  isEncryptedPinReceived: false,
-  sharedKeypair: null as Keypair | null,
-  affairAccountPublicKey: null as PublicKey | null,
-  isAffairInitiated: false,
+
+// Define the type for the full sharedState
+export type SharedStateType = {
+  isRentPaid: boolean;
+  isEncryptedPinReceived: boolean;
+  sharedKeypair: Keypair | null;
+  affairAccountPublicKey: PublicKey | null;
+  isAffairInitiated: boolean;
+  wasRentalActive: boolean;
 };
 
-export function initializeSSE(): void {
-  console.log("Initializing SSE...");
-  const eventSourceInstance = EventSourceSingleton.getInstance();
-  if (eventSourceInstance.eventSource && eventSourceInstance.eventSource.readyState === 1) {
-    console.log("EventSource already open. Not reinitializing.");
-    return;
-  }
-  eventSourceInstance.initializeEventSource("https://localhost:47990/sse");
-  console.log("SSE initialized.");
-}
+// Define the type for the part of the state that gets saved
+export type SafeSharedStateType = {
+  isRentPaid: boolean;
+  isEncryptedPinReceived: boolean;
+  affairAccountPublicKey: PublicKey | null;
+  isAffairInitiated: boolean;
+  wasRentalActive: boolean;
+};
 
 
-export function terminateSSE(): void {
-  const eventSourceInstance = EventSourceSingleton.getInstance();
-  if (eventSourceInstance.eventSource && (eventSourceInstance.eventSource.readyState === 0 || eventSourceInstance.eventSource.readyState === 1)) {
-    eventSourceInstance.closeEventSource();
-  }
-  console.log(`EventSource state after closure: ${eventSourceInstance.eventSource?.readyState}`);
-}
+// Your existing sharedState object with a type assertion
+export const sharedState: SharedStateType = {
+  isRentPaid: false,
+  isEncryptedPinReceived: false,
+  sharedKeypair: null,
+  affairAccountPublicKey: null,
+  isAffairInitiated: false,
+  wasRentalActive: false,
+};
 
-// Singleton class to manage the EventSource (SSE)
-class EventSourceSingleton {
-  private static instance: EventSourceSingleton | null = null;
-  public eventSource: EventSource | null = null;
-  public retryCount: number = 0;
-  public maxRetry: number = 5;  // Maximum number of reconnection attempts
+export async function refreshTerminateAffair(): Promise<void> { // TODO: v.2 has all logic directly on the C++ Backend
+  try {
+    sharedState.isRentPaid = false;
+    sharedState.isEncryptedPinReceived = false;
+    sharedState.affairAccountPublicKey = null;
+    sharedState.isAffairInitiated = false;
+    sharedState.wasRentalActive = false;
 
-  private constructor() {
-    // Singleton pattern: private constructor
-  }
-
-  public static getInstance(): EventSourceSingleton {
-    if (!EventSourceSingleton.instance) {
-      EventSourceSingleton.instance = new EventSourceSingleton();
-    }
-    return EventSourceSingleton.instance;
-  }
-
-  public initializeEventSource(url: string): void {
-    if (this.eventSource && (this.eventSource.readyState === 0 || this.eventSource.readyState === 1)) {
-      console.log("EventSource is already open or connecting. Not reinitializing.");
-      return;
-    }
-
-    this.eventSource = new EventSource(url);
-    this.retryCount = 0;  // Reset the retry count upon successful initialization
-
-    this.eventSource.onopen = (event: Event) => {
-      console.log("EventSource opened", event);
-    };
-
-    this.eventSource.onmessage = (event: MessageEvent) => {
-      console.log("Received message", event.data);
-      if (event.data === 'ping') {
-        console.log('Received ping, connection is alive.');
-      }
-    };
-
-    this.eventSource.onerror = (error: Event) => {
-      console.error(`EventSource failed: `, error);
-      console.log('EventSource readyState:', this.eventSource?.readyState);  // Additional logging
-      this.closeEventSource();
-      this.retryConnection(url);  // Attempt to reconnect
-    };
-  }
-
-  public closeEventSource(): void {
-    if (this.eventSource) {
-      this.eventSource.close();
-      this.eventSource = null;
-    }
-  }
-
-  public retryConnection(url: string): void {
-    if (this.retryCount < this.maxRetry) {
-      const delay = Math.pow(2, this.retryCount) * 1000;  // Exponential backoff, in milliseconds
-      this.retryCount++;
-      console.log(`Attempting to reconnect in ${delay / 1000} seconds...`);
-
-      setTimeout(() => {
-        this.initializeEventSource("https://localhost:47990/sse");
-      }, delay);
-    } else {
-      console.error("Max retry attempts reached. Not reconnecting.");
-    }
+    await ServerManager.backupSharedStateToBackend();
+  } catch (error) {
+    console.error("Failed to backup shared state after terminating affair:", error);
+    // Handle the error as appropriate for your application
   }
 }
 
-export default EventSourceSingleton;
+// TODO: v.2 has all logic directly on the C++ Backend
+
+export async function refreshInitiateAffair(affairPublicKey: PublicKey): Promise<void> {
+  try {
+    sharedState.isRentPaid = false;
+    sharedState.isEncryptedPinReceived = false;
+    sharedState.affairAccountPublicKey = affairPublicKey;
+    sharedState.isAffairInitiated = true;
+    sharedState.wasRentalActive = false;
+
+    await ServerManager.backupSharedStateToBackend();
+  } catch (error) {
+    console.error("Failed to backup shared state after initiating affair:", error);
+    // Handle the error as appropriate for your application
+  }
+}
+
+
+export async function refreshTerminateRental(): Promise<void> {
+  try {
+    sharedState.isRentPaid = false;
+    sharedState.isEncryptedPinReceived = false;
+    sharedState.wasRentalActive = false;
+
+    await ServerManager.backupSharedStateToBackend();
+  } catch (error) {
+    console.error("Failed to backup shared state after terminating rental:", error);
+    // Handle the error as appropriate for your application
+  }
+}
