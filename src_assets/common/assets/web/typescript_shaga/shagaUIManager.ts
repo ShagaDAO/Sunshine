@@ -2,8 +2,8 @@
 
 import { connection, ServerManager } from "./serverManager";
 import { createWallet } from "./createWallet";
-import { startAffair } from "./initializeAffair";
-import { terminateAffairButton } from "./shagaTransactions";
+import { initiatePollingLoop, startAffair } from "./initializeAffair";
+import { checkRentalState, terminateAffairButton } from "./shagaTransactions";
 import  { sharedState } from "./sharedState";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { EncryptionManager } from "./encryptionManager";
@@ -21,6 +21,40 @@ export interface SystemInfo {
 
 let qrCodeDisplayed = false;
 
+
+// Update UI Indicators based on sharedState
+export async function updateUIIndicators() {
+  await checkRentalState();
+
+  const affairIndicator = document.getElementById("affairIndicator") as HTMLElement;
+  const rentalIndicator = document.getElementById("rentalIndicator") as HTMLElement;
+
+  if (!affairIndicator || !rentalIndicator) {
+    console.error('Affair and/or Rental Indicator HTML elements not found.');
+    return;
+  }
+
+  if (sharedState.isAffairInitiated) {
+    affairIndicator.textContent = "Affair is Active";
+    affairIndicator.classList.remove("bg-warning");
+    affairIndicator.classList.add("bg-success");
+  } else {
+    affairIndicator.textContent = "No Active Affair";
+    affairIndicator.classList.remove("bg-success");
+    affairIndicator.classList.add("bg-warning");
+  }
+
+  if (sharedState.wasRentalActive) {
+    rentalIndicator.textContent = "Rental is Active";
+    rentalIndicator.classList.remove("bg-warning");
+    rentalIndicator.classList.add("bg-success");
+  } else {
+    rentalIndicator.textContent = "No Active Rental";
+    rentalIndicator.classList.remove("bg-success");
+    rentalIndicator.classList.add("bg-warning");
+  }
+}
+
 export function initializeShagaUI(walletExists: boolean, passwordEnteredSuccessfully: boolean) {
 
   const startShagaSessionBtn = document.getElementById('startShagaSessionBtn') as HTMLButtonElement;
@@ -29,6 +63,7 @@ export function initializeShagaUI(walletExists: boolean, passwordEnteredSuccessf
   const systemInfoDisplay = document.getElementById('systemInfoDisplay') as HTMLElement;
 
   fetchAndDisplayBalance();
+  updateUIIndicators();
 
   if (!startShagaSessionBtn || !createWalletBtn || !systemInfoDisplay || !messageDisplay) {
     console.error('Essential HTML elements not found.');
@@ -39,6 +74,7 @@ export function initializeShagaUI(walletExists: boolean, passwordEnteredSuccessf
   terminateSessionBtn.addEventListener('click', async () => {
     try {
       await terminateAffairButton();
+      updateUIIndicators();
     } catch (error) {
       console.error('Failed to terminate Shaga session:', error);
     }
@@ -49,6 +85,7 @@ export function initializeShagaUI(walletExists: boolean, passwordEnteredSuccessf
     startShagaSessionBtn.addEventListener('click', async () => {
       try {
         await startAffair();
+        updateUIIndicators();
       } catch (error) {
         console.error('Failed to start Shaga session:', error);
       }
@@ -106,7 +143,7 @@ async function generateQRCode() {
   } else {
     // Generate and display the QR code
     if (sharedState.sharedKeypair) {
-      const publicKeyBase58 = sharedState.sharedKeypair.publicKey.toBase58();  // Convert to base58 string
+      const publicKeyBase58 = (sharedState.sharedKeypair.publicKey).toBase58();  // Convert to base58 string
       // Create canvas element
       const canvas = document.createElement('canvas');
       canvas.id = 'qrcode-canvas';
@@ -189,7 +226,7 @@ export async function fetchAndDisplayBalance() {
   }
   // Step 1.1: Update the address in the UI
   if (sharedState.sharedKeypair) {
-    const publicKeyBase58 = sharedState.sharedKeypair.publicKey.toBase58();
+    const publicKeyBase58 = (sharedState.sharedKeypair.publicKey).toBase58();
     if (userPublicKeySpan) {
       userPublicKeySpan.innerText = publicKeyBase58;
     } else {
@@ -243,6 +280,7 @@ export async function initializeApp(): Promise<void> {
     // Always load the shared state
     await ServerManager.loadSharedStateFromBackend();
     console.log('SharedState has been loaded.');
+    isAffairStillActive();
     // If the wallet is active, proceed to load and decrypt the keypair
     if (walletStatus) {
       // Timeout after 10 seconds
@@ -267,7 +305,15 @@ export async function initializeApp(): Promise<void> {
   }
 }
 
+async function isAffairStillActive(): Promise<void> {
+  // sharedState is globally accessible, so you can directly check its properties
+  if (sharedState.isAffairInitiated && !sharedState.wasRentalActive) {
+    await initiatePollingLoop();
+  }
+}
+
+
 // Starting point
 document.addEventListener('DOMContentLoaded', async () => {
-  initializeApp();  // Initialize your app
+  initializeApp();
 });

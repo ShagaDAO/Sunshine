@@ -1011,15 +1011,16 @@ namespace confighttp {
   std::condition_variable decryptedPin_cv;
   SharedState pairingPayload;
 
-  void SharedState::setEncryptedPinAndKey(const std::string& pin, const std::string& key) {
+  void SharedState::setEncryptedPinAndKeys(const std::string& pin, const std::string& edKey, const std::string& xKey) {
     std::unique_lock<std::mutex> lock(state_mutex);
     encryptedPinShared = pin;
-    publicKeyShared = key;
+    EdPublicKeyShared = edKey;
+    XPublicKeyShared = xKey;
   }
 
-  std::pair<std::string, std::string> SharedState::getEncryptedPinAndKey() {
+  std::tuple<std::string, std::string, std::string> SharedState::getEncryptedPinAndKeys() {
     std::unique_lock<std::mutex> lock(state_mutex);
-    return {encryptedPinShared, publicKeyShared};
+    return {encryptedPinShared, EdPublicKeyShared, XPublicKeyShared};
   }
 
   void SharedState::setReceivedDecryptedPin(const std::string& pin) {
@@ -1032,15 +1033,21 @@ namespace confighttp {
     return received_decryptedPin;
   }
 
-
-  std::string postDataToFrontend(const std::string& encryptedPin, const std::string& publicKey) {
+  std::string postDataToFrontend(const std::string& encryptedPin, const std::string& edPublicKey, const std::string& xPublicKey) {
     try {
-      pairingPayload.setEncryptedPinAndKey(encryptedPin, publicKey);
+      pairingPayload.setEncryptedPinAndKeys(encryptedPin, edPublicKey, xPublicKey);
 
-      std::unique_lock<std::mutex> lock(decryptedPin_mutex);
-      if(decryptedPin_cv.wait_for(lock, std::chrono::seconds(10)) == std::cv_status::timeout) {
-        throw std::runtime_error("Timed out waiting for decryptedPin");
-      }
+      std::string receivedDecryptedPin;
+
+      {
+        std::unique_lock<std::mutex> lock(decryptedPin_mutex);  // Begin lock scope
+        if(decryptedPin_cv.wait_for(lock, std::chrono::seconds(15)) == std::cv_status::timeout) {
+          throw std::runtime_error("Timed out waiting for decryptedPin");
+        }
+        // Fetch and clear the decrypted PIN within the lock scope to avoid race conditions.
+        receivedDecryptedPin = pairingPayload.getReceivedDecryptedPin();
+        pairingPayload.setReceivedDecryptedPin("");  // Clear the decrypted PIN from the global state
+      }  // End lock scope
 
       return pairingPayload.getReceivedDecryptedPin();
     }
@@ -1073,8 +1080,8 @@ namespace confighttp {
       std::string decryptedPin = decryptedPin_it->second;
       pairingPayload.setReceivedDecryptedPin(decryptedPin);
 
-      std::unique_lock<std::mutex> lock(decryptedPin_mutex);
-      decryptedPin_cv.notify_one();
+        std::unique_lock<std::mutex> lock(decryptedPin_mutex);
+        decryptedPin_cv.notify_one();
 
       // Send a response to indicate success
       response->write(SimpleWeb::StatusCode::success_ok, "Received decryptedPin successfully");
@@ -1090,17 +1097,20 @@ namespace confighttp {
     if (pairingPayload.isNull()) {
       pairingPayload.initialize();
     }
-
-    auto [encryptedPin, publicKey] = pairingPayload.getEncryptedPinAndKey();
-
-    if(!encryptedPin.empty() && !publicKey.empty()) {
-      // Prepare the response JSON
-      std::string responseData = R"({ "encryptedPin": ")" + encryptedPin + R"(", "publicKey": ")" + publicKey + R"(" })";
-      pairingPayload.setEncryptedPinAndKey("", ""); // Clear the variables
-
+    // Fetch all three variables: encryptedPin, EdPublicKey, and XPublicKey
+    auto [encryptedPin, EdPublicKey, XPublicKey] = pairingPayload.getEncryptedPinAndKeys();
+    // Check if all variables are non-empty
+    if(!encryptedPin.empty() && !EdPublicKey.empty() && !XPublicKey.empty()) {
+      // Prepare the response JSON including both Ed and X public keys
+      std::string responseData = R"({ "encryptedPin": ")" + encryptedPin
+                                 + R"(", "EdPublicKey": ")" + EdPublicKey
+                                 + R"(", "XPublicKey": ")" + XPublicKey + R"(" })";
+      // Clear the variables
+      pairingPayload.setEncryptedPinAndKeys("", "", "");
       // Write the response
       response->write(SimpleWeb::StatusCode::success_ok, responseData);
     } else {
+      // In case any of the variables are empty, indicate that pairing hasn't been achieved yet
       response->write(SimpleWeb::StatusCode::success_ok, R"({ "status": "Not yet" })");
     }
   }

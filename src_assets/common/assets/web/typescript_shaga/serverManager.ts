@@ -12,6 +12,7 @@ import { SystemInfo } from './shagaUIManager';
 import { EncryptResult } from "./encryptionManager";
 import bs58 from "bs58";
 import { decryptPINAndVerifyPayment } from "./decryptShagaPin";
+import { checkRentalState } from "./shagaTransactions";
 
 interface PinResponse {
   encryptedPin?: string;
@@ -22,16 +23,15 @@ export class ServerManager {
 
   static async postShagaPin(decryptedPin: string): Promise<void> {
     try {
-      const response = await fetch(`${API_BASE_URL}/shagaPIN`, {
+      const apiUrl = `${API_BASE_URL}/shagaPIN`;
+      const response = await fetch(apiUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ decryptedPin })
+        body: JSON.stringify({ decryptedPin: decryptedPin }),
+        headers: { 'Content-Type': 'application/json' },
       });
 
       if (response.ok) {
-        const data = await response.json();
+        const data = await response.text();  // Reading response as text instead of JSON
         console.log("Received response from /shagaPIN:", data);
       } else {
         console.error("Failed to post data to /shagaPIN");
@@ -41,7 +41,14 @@ export class ServerManager {
     }
   }
 
+
   static async pollForPin() {
+    // If there was a rental active, poll Solana RPC until the rental is not active anymore
+    if (sharedState.wasRentalActive) {
+      await checkRentalState();
+      return;
+    }
+    // If there was no rental active, proceed with the original polling mechanism
     if (!sharedState.isAffairInitiated) {
       console.log("Affair not initiated. Stopping polling.");
       return;
@@ -54,12 +61,13 @@ export class ServerManager {
         }
       });
       if (response.ok) {
-        const data: PinResponse = await response.json();
-        if (data.encryptedPin && data.publicKey) {
-          console.log("Received encryptedPin and publicKey:", data);
+        // Update this line to expect two types of public keys
+        const data: { encryptedPin: string, EdPublicKey : string, XPublicKey: string } = await response.json();
+        // Update this condition to check for both public keys
+        if (data.encryptedPin && data.EdPublicKey  && data.XPublicKey) {
+          // Update this function call to include both public keys
+          const error = await decryptPINAndVerifyPayment(data.encryptedPin, data.EdPublicKey, data.XPublicKey);
 
-          // Call the function to decrypt PIN and verify payment
-          const error = await decryptPINAndVerifyPayment(data.encryptedPin, data.publicKey);
           if (error) {
             console.error('Error during decryption or payment verification:', error);
           }
@@ -75,10 +83,9 @@ export class ServerManager {
     }
   }
 
-
   static async unpairAllClients() { // TODO: MOVE LOGIC TO C++ BACKEND
     try {
-      const response = await fetch(`${API_BASE_URL}/api/clients/unpair`, {
+      const response = await fetch(`${API_BASE_URL}/clients/unpair`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

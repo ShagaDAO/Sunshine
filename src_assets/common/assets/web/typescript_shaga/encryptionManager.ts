@@ -1,10 +1,10 @@
 // encryptionManager.ts
 
-import CryptoJS from "crypto-js";
+import CryptoJS from 'crypto-js';
 import * as nacl from "tweetnacl";
 import * as naclUtil from "tweetnacl-util";
-import * as sodium from "libsodium-wrappers";
-
+import _sodium from 'libsodium-wrappers';
+import { Keypair } from "@solana/web3.js";
 
 export interface EncryptResult {
   encrypted: Uint8Array | string;
@@ -32,16 +32,6 @@ export class EncryptionManager {
     return nacl.hash(input).subarray(0, nacl.secretbox.keyLength);
   }
 
-  static async mapPublicEd25519ToX25519(ed25519PublicKey: Uint8Array): Promise<Uint8Array> {
-    await sodium.ready;
-    return sodium.crypto_sign_ed25519_pk_to_curve25519(ed25519PublicKey);
-  }
-
-  static async mapSecretEd25519ToX25519(ed25519PrivateKey: Uint8Array): Promise<Uint8Array> {
-    await sodium.ready;
-    return sodium.crypto_sign_ed25519_sk_to_curve25519(ed25519PrivateKey);
-  }
-
   static async hexToBytes(hex: string): Promise<Uint8Array> {
     const bytes = new Uint8Array(Math.ceil(hex.length / 2));
     for (let i = 0; i < bytes.length; i++) {
@@ -50,21 +40,93 @@ export class EncryptionManager {
     return bytes;
   }
 
-  static async decryptPinWithAES(encryptedPin: Uint8Array, privateKey: Uint8Array, publicKey: Uint8Array): Promise<string> {
-    await sodium.ready;
+
+  static async deriveAESKey(privateKey: Uint8Array, publicKey: Uint8Array): Promise<Uint8Array> {
+    // Wait for libsodium to be ready
+    await _sodium.ready;
+    const sodium = _sodium;
+    // Validate key lengths
+    if (privateKey.length !== 32 || publicKey.length !== 32) {
+      throw new Error('Invalid key length. Both privateKey and publicKey must be 32 bytes.');
+    }
+    // Perform the scalar multiplication using libsodium
     const sharedSecret = sodium.crypto_scalarmult(privateKey, publicKey);
-    const aesKey = sharedSecret.slice(0, 16);
-    const key = await window.crypto.subtle.importKey('raw', aesKey.buffer, 'AES-ECB', false, ['decrypt']);
-    const decryptedData = await window.crypto.subtle.decrypt({ name: 'AES-ECB' }, key, encryptedPin); // uses PKCS#7 padding
-    return new TextDecoder().decode(new Uint8Array(decryptedData));
+
+    if (!sharedSecret) {
+      throw new Error("Failed to derive shared secret");
+    }
+
+    return sharedSecret;
   }
 
-  static async decryptAndRetrievePIN(decodedEncryptedPin: Uint8Array, receivedEd25519PublicKey: Uint8Array, serverEd25519PrivateKey: Uint8Array): Promise<string> {
-    const x25519PublicKey = await this.mapPublicEd25519ToX25519(receivedEd25519PublicKey);
-    const x25519PrivateKey = await this.mapSecretEd25519ToX25519(serverEd25519PrivateKey);
+  static async decryptPinWithAES(encryptedPin: Uint8Array, privateKey: Uint8Array, publicKey: Uint8Array): Promise<string> {
+    try {
+      // Derive the AES key using your existing method
+      const aesKey = await EncryptionManager.deriveAESKey(privateKey, publicKey);
+      // Check the AES key length; it should be 32 bytes for AES-256
+      if (aesKey.length !== 32) {
+        return Promise.reject(new Error("Invalid AES key length."));
+      }
+      // Convert the derived AES key and encrypted PIN to Base64
+      const keyBase64 = Buffer.from(aesKey).toString('base64');
+      const encryptedPinBase64 = Buffer.from(encryptedPin).toString('base64');
+      // Convert the Base64 AES key and encrypted PIN to CryptoJS's WordArray format
+      const keyWordArray = CryptoJS.enc.Base64.parse(keyBase64);
+      const encryptedPinWordArray = CryptoJS.enc.Base64.parse(encryptedPinBase64);
+      // Perform decryption using AES-ECB mode with PKCS7 padding
+      const decryptedData = CryptoJS.AES.decrypt(
+        { ciphertext: encryptedPinWordArray } as any,
+        keyWordArray,
+        {
+          mode: CryptoJS.mode.ECB,
+          padding: CryptoJS.pad.Pkcs7
+        }
+      );
+      // Convert the decrypted data to a UTF-8 string
+      const decryptedPin = CryptoJS.enc.Utf8.stringify(decryptedData);
+      console.log(`Decrypted PIN: ${decryptedPin}`);
 
-    return await this.decryptPinWithAES(decodedEncryptedPin, x25519PrivateKey, x25519PublicKey);
+      return decryptedPin;
+
+    } catch (e) {
+      console.error('Error in decryptPinWithAES:', e);
+      return Promise.reject(e);
+    }
   }
+
+
+
+  static async decryptPIN(decodedEncryptedPin: Uint8Array, sharedKeypair: Keypair, clientX25519PublicKey: Uint8Array): Promise<string> {
+    try {
+      // Wait for libsodium to be ready
+      await _sodium.ready;
+      const sodium = _sodium;
+
+      console.log('--- Starting decryptPIN Function ---');
+      // Get the full 64-byte Ed25519 secret key
+      const serverEd25519PrivateKeyFull = sharedKeypair.secretKey;
+      // Convert the full 64-byte Ed25519 private key to a 32-byte X25519 private key
+      let serverX25519PrivateKey;
+      try {
+        serverX25519PrivateKey = sodium.crypto_sign_ed25519_sk_to_curve25519(serverEd25519PrivateKeyFull);
+      } catch (e) {
+        console.error("Failed to convert Ed25519 private key to X25519:", e);
+        throw e;
+      }
+      // Validate that the resulting X25519 private key is 32 bytes
+      if (serverX25519PrivateKey.length !== 32) {
+        throw new Error('Invalid X25519 private key length');
+      }
+      // Decrypt using AES
+      return await this.decryptPinWithAES(decodedEncryptedPin, serverX25519PrivateKey, clientX25519PublicKey);
+    } catch (e) {
+      console.error("--- Error in decryptPIN Function ---");
+      console.error("Caught Exception:", e);
+      return Promise.reject(e);
+    }
+  }
+
+
 
   /* TODO: find a better solution for shared state, v2 is moving most of this to the backend.
   static async encryptSharedState(sharedState: any, password: string, salt?: Uint8Array): Promise<EncryptResult> {

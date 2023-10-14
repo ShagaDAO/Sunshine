@@ -86,21 +86,25 @@ export async function checkRentalState(): Promise<void> {
   }
 }
 
-
-
 export async function checkIfAffairExists(): Promise<AccountInfo<Buffer> | null> {
+  // Check if affairAccountPublicKey is null before making the RPC call
+  if (sharedState.affairAccountPublicKey === null) {
+    console.log("affairAccountPublicKey is null. Skipping RPC call.");
+    sharedState.isAffairInitiated = false;
+    return null;
+  }
   let accountInfo: AccountInfo<Buffer> | null = null;
   try {
-    accountInfo = await connection.getAccountInfo(<PublicKey>sharedState.affairAccountPublicKey);
+    accountInfo = await connection.getAccountInfo(<PublicKey> new PublicKey(sharedState.affairAccountPublicKey));
   } catch (error) {
     console.error(`Error checking affair initialization: ${error}`);
     return null;
   }
   // Update the shared state
   sharedState.isAffairInitiated = accountInfo !== null;
-
   return accountInfo;
 }
+
 
 
 
@@ -108,16 +112,6 @@ export async function createShagaAffair(
   payload: { systemInfo: SystemInfo, solPerHour: number, affairTerminationTime: number },
   serverKeypair: Keypair
 ): Promise<void> {
-
-  // Step 0: Initialize the lender if necessary
-  const lenderInitialized = await initializeLenderIfNecessary(serverKeypair, connection);
-
-  if (!lenderInitialized) {
-    console.error("Failed to initialize lender");
-    throw new Error("Failed to initialize lender");
-  }
-
-  console.log("Lender has been initialized or already exists");
 
   const { systemInfo, solPerHour, affairTerminationTime } = payload;
 
@@ -155,7 +149,7 @@ export async function createShagaAffair(
   console.log("Affair Payload:", affairPayload);
   console.log("Authority:", authority.toString());
   console.log("Transaction Instructions:", instructionArray);
-  console.log(serverKeypair.publicKey.toBase58())
+  console.log("hello: ", serverKeypair.publicKey.toBase58());
 
   try {
     // Sign and send the transaction

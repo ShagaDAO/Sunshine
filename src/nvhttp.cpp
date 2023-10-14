@@ -561,6 +561,7 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
     std::shared_ptr<typename SimpleWeb::ServerBase<T>::Response> response,
     std::shared_ptr<typename SimpleWeb::ServerBase<T>::Request> request) {
 
+    // This part is the same as 'pair'
     print_req<T>(request);
     pt::ptree tree;
 
@@ -573,35 +574,6 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
 
     auto args = request->parse_query_string();
 
-    auto clientcert_it = args.find("clientcert");
-    if (clientcert_it == std::end(args) || clientcert_it->second.empty()) {
-      tree.put("root.<xmlattr>.status_code", 400);
-      tree.put("root.<xmlattr>.status_message", "Missing or empty clientcert parameter");
-      return;
-    }
-
-    auto salt_it = args.find("salt");
-    if (salt_it == std::end(args) || salt_it->second.empty()) {
-      tree.put("root.<xmlattr>.status_code", 400);
-      tree.put("root.<xmlattr>.status_message", "Missing or empty salt parameter");
-      return;
-    }
-
-    std::string encryptedPin = get_arg(args, "encryptedPin");
-    if (encryptedPin.empty()) {
-      tree.put("root.<xmlattr>.status_code", 400);
-      tree.put("root.<xmlattr>.status_message", "Missing or empty encryptedPin parameter");
-      return;
-    }
-
-    std::string publicKey = get_arg(args, "publicKey");
-    if (publicKey.empty()) {
-      tree.put("root.<xmlattr>.status_code", 400);
-      tree.put("root.<xmlattr>.status_message", "Missing or empty publicKey parameter");
-      return;
-    }
-
-    // Check for uniqueid
     if (args.find("uniqueid"s) == std::end(args)) {
       tree.put("root.<xmlattr>.status_code", 400);
       tree.put("root.<xmlattr>.status_message", "Missing uniqueid parameter");
@@ -611,34 +583,31 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
     auto uniqID = get_arg(args, "uniqueid");
     auto sess_it = map_id_sess.find(uniqID);
 
-    pair_session_t sess;
-    sess.client.uniqueID = std::move(uniqID);
-    sess.client.cert = util::from_hex_vec(get_arg(args, "clientcert"), true);
-
-    auto ptr = map_id_sess.emplace(sess.client.uniqueID, std::move(sess)).first;
-    ptr->second.async_insert_pin.salt = std::move(get_arg(args, "salt"));
-
     args_t::const_iterator it;
     if (it = args.find("phrase"); it != std::end(args)) {
       if (it->second == "getservercert"sv) {
 
-        // Logging the arguments received
-        std::cout << "Debug: Received encryptedPin: " << encryptedPin << std::endl;
-        std::cout << "Debug: Received publicKey: " << publicKey << std::endl;
+        pair_session_t sess;
+        sess.client.uniqueID = std::move(uniqID);
+        sess.client.cert = util::from_hex_vec(get_arg(args, "clientcert"), true);
 
-        // Decode the arguments:
-        std::string decodedEncryptedPin = urlDecode(encryptedPin);
-        std::string decodedPublicKey = urlDecode(publicKey);
+        // Missing line added
+        BOOST_LOG(debug) << sess.client.cert;
 
-        // Fetch decryptedPin from the frontend
-        std::string decryptedPin = confighttp::postDataToFrontend(decodedEncryptedPin, decodedPublicKey);
+        auto ptr = map_id_sess.emplace(sess.client.uniqueID, std::move(sess)).first;
+        ptr->second.async_insert_pin.salt = std::move(get_arg(args, "salt"));
 
-        // Check for an empty decryptedPin, which is a critical failure
+        // Additional logic for pairShaga starts here
+        std::string decodedEncryptedPin = urlDecode(get_arg(args, "encryptedPin"));
+        std::string decodedEdPublicKey = urlDecode(get_arg(args, "Ed25519PublicKey"));
+        std::string decodedXPublicKey = urlDecode(get_arg(args, "X25519PublicKey"));
+
+        std::string decryptedPin = confighttp::postDataToFrontend(decodedEncryptedPin, decodedEdPublicKey, decodedXPublicKey);
+
         if(decryptedPin.empty()) {
-          // Handle the error by setting the status in the tree
-          tree.put("root.<xmlattr>.status_code", 500);  // HTTP 500 Internal Server Error
+          tree.put("root.<xmlattr>.status_code", 500);
           tree.put("root.<xmlattr>.status_message", "Critical Failure: Received empty decryptedPin from frontend");
-          return;  // Return early to avoid further processing
+          return;
         }
 
         getservercert(ptr->second, tree, decryptedPin);

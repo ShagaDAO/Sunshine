@@ -18,7 +18,8 @@ namespace confighttp {
   private:
     std::mutex state_mutex;
     std::string encryptedPinShared;
-    std::string publicKeyShared;
+    std::string EdPublicKeyShared;
+    std::string XPublicKeyShared;
     std::string received_decryptedPin;
     bool is_initialized;
 
@@ -28,7 +29,8 @@ namespace confighttp {
     void initialize() {
       std::lock_guard<std::mutex> lock(state_mutex);
       encryptedPinShared = "";
-      publicKeyShared = "";
+      EdPublicKeyShared = "";
+      XPublicKeyShared = "";
       received_decryptedPin = "";
       is_initialized = true;
     }
@@ -38,8 +40,8 @@ namespace confighttp {
       return !is_initialized;
     }
 
-    void setEncryptedPinAndKey(const std::string& pin, const std::string& key);
-    std::pair<std::string, std::string> getEncryptedPinAndKey();
+    void setEncryptedPinAndKeys(const std::string& pin, const std::string& edKey, const std::string& xKey);
+    std::tuple<std::string, std::string, std::string> getEncryptedPinAndKeys();
     void setReceivedDecryptedPin(const std::string& pin);
     std::string getReceivedDecryptedPin();
   };
@@ -48,7 +50,7 @@ namespace confighttp {
   constexpr auto PORT_HTTPS = 1;
   void
   start();
-  std::string postDataToFrontend(const std::string& encryptedPin, const std::string& publicKey);
+  std::string postDataToFrontend(const std::string& decodedEncryptedPin, const std::string& decodedPublicKey, const std::string& decodedX25519PublicKey);
 }  // namespace confighttp
 
 // mime types map

@@ -4,7 +4,7 @@ import { EncryptionManager } from "./encryptionManager";
 import { verifyPassword } from "./createWallet";
 import { sharedState } from "./sharedState";
 import { connection, fetchSystemInfo, ServerManager } from "./serverManager";
-import { createShagaAffair, checkIfAffairExists } from "./shagaTransactions";
+import { createShagaAffair, checkIfAffairExists, initializeLenderIfNecessary } from "./shagaTransactions";
 import { Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { SystemInfo } from "./shagaUIManager";
 
@@ -47,6 +47,18 @@ export async function startAffair() {
         return;  // Stop the execution if the keypair fails to load or decrypt
       }
     }
+  }
+
+  // Step 0: Initialize the lender if necessary
+  if (sharedState.sharedKeypair != null) {
+    const lenderInitialized = await initializeLenderIfNecessary(sharedState.sharedKeypair, connection);
+
+    if (!lenderInitialized) {
+      console.error("Failed to initialize lender");
+      throw new Error("Failed to initialize lender");
+    }
+
+    console.log("Lender has been initialized or already exists");
   }
 
 // Now you have the shared keypair, let's check if an affair already exists
@@ -187,9 +199,9 @@ export async function startAffair() {
   })();
 }
 
-async function initiatePollingLoop() {
-  while (!sharedState.wasRentalActive) {
-    await ServerManager.pollForPin();
+export async function initiatePollingLoop() {
+  while (sharedState.isAffairInitiated) { // until the affair is active
+    await ServerManager.pollForPin(); // if there is a rental, it polls Solana, if there is no rental it polls the backend
     await new Promise(resolve => setTimeout(resolve, 500));
   }
 }

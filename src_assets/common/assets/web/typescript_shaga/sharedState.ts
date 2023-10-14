@@ -3,6 +3,7 @@
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { checkRentalState } from "./shagaTransactions";
 import { ServerManager } from "./serverManager";
+import { updateUIIndicators } from "./shagaUIManager";
 
 
 // Define the type for the full sharedState
@@ -10,7 +11,7 @@ export type SharedStateType = {
   isRentPaid: boolean;
   isEncryptedPinReceived: boolean;
   sharedKeypair: Keypair | null;
-  affairAccountPublicKey: PublicKey | null;
+  affairAccountPublicKey: string | null;
   isAffairInitiated: boolean;
   wasRentalActive: boolean;
 };
@@ -19,7 +20,7 @@ export type SharedStateType = {
 export type SafeSharedStateType = {
   isRentPaid: boolean;
   isEncryptedPinReceived: boolean;
-  affairAccountPublicKey: PublicKey | null;
+  affairAccountPublicKey: string | null;
   isAffairInitiated: boolean;
   wasRentalActive: boolean;
 };
@@ -44,6 +45,7 @@ export async function refreshTerminateAffair(): Promise<void> { // TODO: v.2 has
     sharedState.wasRentalActive = false;
 
     await ServerManager.backupSharedStateToBackend();
+    updateUIIndicators();
   } catch (error) {
     console.error("Failed to backup shared state after terminating affair:", error);
     // Handle the error as appropriate for your application
@@ -56,11 +58,12 @@ export async function refreshInitiateAffair(affairPublicKey: PublicKey): Promise
   try {
     sharedState.isRentPaid = false;
     sharedState.isEncryptedPinReceived = false;
-    sharedState.affairAccountPublicKey = affairPublicKey;
+    sharedState.affairAccountPublicKey = affairPublicKey.toString();
     sharedState.isAffairInitiated = true;
     sharedState.wasRentalActive = false;
 
     await ServerManager.backupSharedStateToBackend();
+    updateUIIndicators();
   } catch (error) {
     console.error("Failed to backup shared state after initiating affair:", error);
     // Handle the error as appropriate for your application
@@ -75,6 +78,7 @@ export async function refreshTerminateRental(): Promise<void> {
     sharedState.wasRentalActive = false;
 
     await ServerManager.backupSharedStateToBackend();
+    updateUIIndicators();
   } catch (error) {
     console.error("Failed to backup shared state after terminating rental:", error);
     // Handle the error as appropriate for your application

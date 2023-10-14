@@ -1,5 +1,5 @@
 const path = require('path');
-const { ProvidePlugin } = require('webpack');
+const webpack = require('webpack');
 
 module.exports = {
   mode: 'development',
@@ -29,8 +29,9 @@ module.exports = {
     ],
   },
   plugins: [
-    new ProvidePlugin({
+    new webpack.ProvidePlugin({
       process: 'process/browser',
+      Buffer: ['buffer', 'Buffer'],  // Add this line
     }),
   ],
   resolve: {
@@ -46,6 +47,8 @@ module.exports = {
       zlib: require.resolve('browserify-zlib'),
       path: require.resolve('path-browserify'),
       querystring: require.resolve("querystring-es3"),
+      "fs": require.resolve("browserify-fs"),
+      "os": require.resolve("os-browserify/browser"),
     },
   },
   ignoreWarnings: [/Failed to parse source map/],
