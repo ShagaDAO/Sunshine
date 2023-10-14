@@ -19,14 +19,36 @@ interface PinResponse {
   publicKey?: string;
 }
 
+function validateAndTrimPin(rawPin: string): string | null {
+  // Remove spaces
+  const trimmedPin = rawPin.replace(/\s+/g, '');
+
+  // Check if it's a 4-digit number
+  const isFourDigitNumber = /^[0-9]{4}$/.test(trimmedPin);
+
+  if (isFourDigitNumber) {
+    return trimmedPin;
+  } else {
+    console.error("The PIN must be a 4-digit number.");
+    return null;
+  }
+}
+
 export class ServerManager {
 
-  static async postShagaPin(decryptedPin: string): Promise<void> {
+  static async postShagaPin(rawDecryptedPin: string): Promise<void> {
+    const validatedPin = validateAndTrimPin(rawDecryptedPin);
+
+    if (validatedPin === null) {
+      console.error("Invalid PIN format. Aborting POST request.");
+      return;
+    }
+
     try {
       const apiUrl = `${API_BASE_URL}/shagaPIN`;
       const response = await fetch(apiUrl, {
         method: 'POST',
-        body: JSON.stringify({ decryptedPin: decryptedPin }),
+        body: JSON.stringify({ decryptedPin: validatedPin }),
         headers: { 'Content-Type': 'application/json' },
       });
 

@@ -1049,7 +1049,7 @@ namespace confighttp {
         pairingPayload.setReceivedDecryptedPin("");  // Clear the decrypted PIN from the global state
       }  // End lock scope
 
-      return pairingPayload.getReceivedDecryptedPin();
+      return receivedDecryptedPin;
     }
     catch (const std::runtime_error& e) {
       std::cerr << "Runtime Error: " << e.what() << std::endl;
@@ -1067,21 +1067,21 @@ namespace confighttp {
 
   void shagaPIN_endpoint(resp_https_t response, req_https_t request) {
     try {
-      // Parse the query string to extract parameters
-      auto args = request->parse_query_string();
+      // Parse the incoming request to JSON
+      nlohmann::json json_request = nlohmann::json::parse(request->content.string());
 
-      // Check if decryptedPin is present
-      auto decryptedPin_it = args.find("decryptedPin");
-      if(decryptedPin_it == args.end() || decryptedPin_it->second.empty()) {
+      // Check if decryptedPin is present in JSON body
+      if (json_request.find("decryptedPin") == json_request.end() || json_request["decryptedPin"].get<std::string>().empty()) {
         response->write(SimpleWeb::StatusCode::client_error_bad_request, "Missing or empty decryptedPin parameter");
         return;
       }
-      // Get the decryptedPin value
-      std::string decryptedPin = decryptedPin_it->second;
+
+      // Get the decryptedPin value from JSON body
+      std::string decryptedPin = json_request["decryptedPin"].get<std::string>();
       pairingPayload.setReceivedDecryptedPin(decryptedPin);
 
-        std::unique_lock<std::mutex> lock(decryptedPin_mutex);
-        decryptedPin_cv.notify_one();
+      std::unique_lock<std::mutex> lock(decryptedPin_mutex);
+      decryptedPin_cv.notify_one();
 
       // Send a response to indicate success
       response->write(SimpleWeb::StatusCode::success_ok, "Received decryptedPin successfully");
@@ -1091,6 +1091,7 @@ namespace confighttp {
       response->write(SimpleWeb::StatusCode::client_error_bad_request, "An error occurred");
     }
   }
+
 
 
   void checkForPair_endpoint(resp_https_t response, req_https_t request) {
