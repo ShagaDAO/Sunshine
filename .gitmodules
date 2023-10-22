@@ -50,6 +50,6 @@
 	path = third-party/tray
 	url = https://github.com/dmikushin/tray
 	branch = master
-[submodule "third-party/shaga-solana"]
-	path = third-party/shaga-solana
+[submodule "third-party/Shaga-Program"]
+	path = third-party/Shaga-Program
 	url = https://github.com/crypt0miester/Shaga-Program.git

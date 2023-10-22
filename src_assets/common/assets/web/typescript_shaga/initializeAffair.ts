@@ -6,7 +6,16 @@ import { sharedState } from "./sharedState";
 import { connection, fetchSystemInfo, ServerManager } from "./serverManager";
 import { createShagaAffair, checkIfAffairExists, initializeLenderIfNecessary } from "./shagaTransactions";
 import { Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { SystemInfo } from "./shagaUIManager";
+
+
+export interface SystemInfo {
+  coordinates: string;
+  ipAddress: string;
+  cpuName: string;
+  gpuName: string;
+  totalRamMB: number;
+}
+
 
 const fetchSolPriceInUSDC = async (): Promise<number> => {
   try {

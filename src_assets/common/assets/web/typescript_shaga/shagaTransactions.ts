@@ -1,21 +1,52 @@
 // shagaTransactions.ts
 
-import { loadAndDecryptKeypair, SystemInfo } from "./shagaUIManager";
+import { loadAndDecryptKeypair } from "./shagaUIManager";
 import {
-  Affair, AffairPayload, AffairState, createInitializeLenderInstruction, createTerminateAffairInstruction,
-  createTerminateVacantAffairInstruction
+  Affair,
+  AffairPayload,
+  AffairState
 } from "../../../../../third-party/shaga-program/app/shaga_joe/src/generated";
-import { createAffair, createLender,terminateAffair } from "../../../../../third-party/shaga-program/app/shaga_joe/src/custom";
+import {
+  createAffair,
+  createLender,
+  terminateAffair
+} from "../../../../../third-party/shaga-program/app/shaga_joe/src/custom";
 import { AccountInfo, Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
-import { API_BASE_URL, connection, ServerManager } from "./serverManager";
-import {  signAndSendTransactionInstructionsModified} from "../../../../../third-party/shaga-program/app/shaga_joe/src/utils";
-import {  findAffair,  findAffairList,  findLender,  findRentAccount,
-  findRentEscrow, findThreadAuthority, findVault} from "../../../../../third-party/shaga-program/app/shaga_joe/src/pda";
+import { connection, ServerManager } from "./serverManager";
+import {
+  signAndSendTransactionInstructionsModified
+} from "../../../../../third-party/shaga-program/app/shaga_joe/src/utils";
+import {
+  findAffair,
+  findAffairList,
+  findLender,
+  findRentAccount,
+  findRentEscrow,
+  findVault
+} from "../../../../../third-party/shaga-program/app/shaga_joe/src/pda";
 import { refreshInitiateAffair, refreshTerminateAffair, refreshTerminateRental, sharedState } from "./sharedState";
 import BN from "bn.js";
+import { SystemInfo } from "./initializeAffair";
 
 // Define the path to the file where lender states are stored TODO: Write backend endpoint & append there
 // transactionLogFilePath = './transactionLogs.json';
+
+
+function validateCoordinates(coordinates: string): boolean {
+  // Regular expression to match the coordinates pattern ±DD.DDD,±DDD.DDD
+  const regex = /^[+-]?\d{1,2}(\.\d{1,3})?,\s*[+-]?\d{1,3}(\.\d{1,3})?$/;
+  if (!regex.test(coordinates)) {
+    return false;
+  }
+  // Split the coordinates into latitude and longitude
+  const [lat, long] = coordinates.split(',').map(coord => parseFloat(coord.trim()));
+  // Validate latitude and longitude ranges
+  if (lat < -90 || lat > 90 || long < -180 || long > 180) {
+    return false;
+  }
+
+  return true;
+}
 
 function validateAffairPayload(payload: AffairPayload): boolean {
   // Validate IP Address
@@ -24,19 +55,16 @@ function validateAffairPayload(payload: AffairPayload): boolean {
     const num = Number(segment);
     return !isNaN(num) && num < 255;
   });
-
   // Validate totalRamMb (Minimum 3GB = 3072MB or 4GB = 4096MB)
   const validRam = payload.totalRamMb >= 3072; // Replace 3072 with 4096 for at least 4GB
-
   // Validate other fields for not-null or appropriate types
   const validCpuName = Boolean(payload.cpuName);
   const validGpuName = Boolean(payload.gpuName);
   const validSolPerHour = Boolean(payload.solPerHour);
   const validAffairTerminationTime = Boolean(payload.affairTerminationTime);
-
-  // Combine all validations
-  const isValid = validIp && validRam && validCpuName && validGpuName && validSolPerHour && validAffairTerminationTime;
-
+  const validCoordinates = validateCoordinates(payload.coordinates);
+  // Combine all validations including the new coordinates validation
+  const isValid = validIp && validRam && validCpuName && validGpuName && validSolPerHour && validAffairTerminationTime && validCoordinates;
   // Debug Outputs
   console.debug('Is IP valid:', validIp);
   console.debug('Is RAM valid:', validRam);
@@ -44,6 +72,8 @@ function validateAffairPayload(payload: AffairPayload): boolean {
   console.debug('Is GPU name valid:', validGpuName);
   console.debug('Is Sol per hour valid:', validSolPerHour);
   console.debug('Is Affair termination time valid:', validAffairTerminationTime);
+  console.debug('Is payload valid:', isValid);
+  console.debug('Is Coordinates valid:', validCoordinates);
   console.debug('Is payload valid:', isValid);
 
   return isValid;
@@ -106,7 +136,14 @@ export async function checkIfAffairExists(): Promise<AccountInfo<Buffer> | null>
 }
 
 
+function formatCoordinates(coordinates: string): string {
+  const [lat, long] = coordinates.split(',');
 
+  const formattedLat = lat.startsWith('-') ? lat : `+${lat}`;
+  const formattedLong = long.startsWith('-') ? long : `+${long}`;
+
+  return `${formattedLat},${formattedLong}`;
+}
 
 export async function createShagaAffair(
   payload: { systemInfo: SystemInfo, solPerHour: number, affairTerminationTime: number },
@@ -115,6 +152,8 @@ export async function createShagaAffair(
 
   const { systemInfo, solPerHour, affairTerminationTime } = payload;
 
+  // Extract and format the coordinates using the external function
+  const coordinates = formatCoordinates(systemInfo.coordinates)
   const ipAddressArray = systemInfo.ipAddress
   const cpuNameArray = systemInfo.cpuName
   const gpuNameArray = systemInfo.gpuName
@@ -122,6 +161,7 @@ export async function createShagaAffair(
   const affairTerminationTimeBN = new BN(affairTerminationTime);
 
   const affairPayload: AffairPayload = {
+    coordinates: coordinates,
     ipAddress: ipAddressArray,
     cpuName: cpuNameArray,
     gpuName: gpuNameArray,
