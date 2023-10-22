@@ -17,6 +17,14 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
+#include <queue>
+// Shaga
+#include <boost/beast/core.hpp>
+#include <boost/beast/websocket.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/bind/bind.hpp>
+
+
 #include <string>
 
 // local includes
@@ -33,6 +41,19 @@
 #include "utility.h"
 #include "uuid.h"
 #include "video.h"
+#include "confighttp.h"
+
+
+
+#include <string>
+#include <locale>
+#include <codecvt>
+#include <curl/curl.h>
+
+
+
+
+long http_status_code; // Global to store the HTTP status code
 
 using namespace std::literals;
 namespace nvhttp {
@@ -318,6 +339,7 @@ namespace nvhttp {
     tree.put("root.plaincert", util::hex_vec(conf_intern.servercert, true));
     tree.put("root.<xmlattr>.status_code", 200);
   }
+
   void
   serverchallengeresp(pair_session_t &sess, pt::ptree &tree, const args_t &args) {
     auto encrypted_response = util::from_hex_vec(get_arg(args, "serverchallengeresp"), true);
@@ -469,6 +491,125 @@ namespace nvhttp {
 
     response->close_connection_after_response = true;
   }
+
+  //Shaga : code in confighttp.cpp
+  /*
+   * TODO: FOR MORE SECURE CODE:
+Edge Cases: Check how the system behaves if it receives malformed or malicious data.
+Rate Limiting: Implement rate limiting to prevent brute-force attacks.
+Log Monitoring: Use automated log monitoring to detect any unusual patterns in real-time.
+Security Audits: Given the critical nature of the application, a third-party security audit is highly recommended.
+Unit and Integration Tests: Write exhaustive unit tests covering all possible edge cases for the encryption and decryption methods. Run integration tests to simulate the entire data flow from the client to the server.
+Data Integrity: Implement checksums or hash values to verify that the data has not been tampered with during transmission.
+
+Immediate Actions:
+Replace ECB Mode: Given its vulnerabilities, replace it with a more secure mode like CBC or GCM.
+Add Salt and IV: Implement these in your encryption and ensure they are transmitted securely to the server for decryption.
+Robust Testing: Before this goes live, it should be thoroughly tested under various scenarios including edge cases and failure modes.
+Review and Audit: Conduct multiple rounds of code reviews focusing specifically on the security aspects, followed by a professional security audit.
+Documentation: Document every single detail of the encryption and decryption process, as well as data transmission, so that anyone reviewing your system can understand it thoroughly.
+Emergency Response Plan: Have a plan in place for immediate action in case of any security incidents post-deployment.
+   */
+
+  std::string urlDecode(const std::string &str) {
+    std::string ret;
+    char ch;
+    int i, ii, len = str.length();
+
+    for (i = 0; i < len; i++) {
+      if (str[i] != '%') {
+        if (str[i] == '+')
+          ret += ' ';
+        else
+          ret += str[i];
+      } else {
+        sscanf(str.substr(i + 1, 2).c_str(), "%x", &ii);
+        ch = static_cast<char>(ii);
+        ret += ch;
+        i = i + 2;
+      }
+    }
+    return ret;
+  }
+
+
+  template <class T>
+  void pairShaga(std::shared_ptr<safe::queue_t<crypto::x509_t>> &add_cert,
+    std::shared_ptr<typename SimpleWeb::ServerBase<T>::Response> response,
+    std::shared_ptr<typename SimpleWeb::ServerBase<T>::Request> request) {
+
+    // This part is the same as 'pair'
+    print_req<T>(request);
+    pt::ptree tree;
+
+    auto fg = util::fail_guard([&]() {
+      std::ostringstream data;
+      pt::write_xml(data, tree);
+      response->write(data.str());
+      response->close_connection_after_response = true;
+    });
+
+    auto args = request->parse_query_string();
+
+    if (args.find("uniqueid"s) == std::end(args)) {
+      tree.put("root.<xmlattr>.status_code", 400);
+      tree.put("root.<xmlattr>.status_message", "Missing uniqueid parameter");
+      return;
+    }
+
+    auto uniqID = get_arg(args, "uniqueid");
+    auto sess_it = map_id_sess.find(uniqID);
+
+    args_t::const_iterator it;
+    if (it = args.find("phrase"); it != std::end(args)) {
+      if (it->second == "getservercert"sv) {
+
+        pair_session_t sess;
+        sess.client.uniqueID = std::move(uniqID);
+        sess.client.cert = util::from_hex_vec(get_arg(args, "clientcert"), true);
+
+        // Missing line added
+        BOOST_LOG(debug) << sess.client.cert;
+
+        auto ptr = map_id_sess.emplace(sess.client.uniqueID, std::move(sess)).first;
+        ptr->second.async_insert_pin.salt = std::move(get_arg(args, "salt"));
+
+        // Additional logic for pairShaga starts here
+        std::string decodedEncryptedPin = urlDecode(get_arg(args, "encryptedPin"));
+        std::string decodedEdPublicKey = urlDecode(get_arg(args, "Ed25519PublicKey"));
+        std::string decodedXPublicKey = urlDecode(get_arg(args, "X25519PublicKey"));
+
+        std::string decryptedPin = confighttp::postDataToFrontend(decodedEncryptedPin, decodedEdPublicKey, decodedXPublicKey);
+
+        if(decryptedPin.empty()) {
+          tree.put("root.<xmlattr>.status_code", 500);
+          tree.put("root.<xmlattr>.status_message", "Critical Failure: Received empty decryptedPin from frontend");
+          return;
+        }
+
+        getservercert(ptr->second, tree, decryptedPin);
+      }
+      else if (it->second == "pairchallenge"sv) {
+        tree.put("root.paired", 1);
+        tree.put("root.<xmlattr>.status_code", 200);
+      }
+    }
+    else if (it = args.find("clientchallenge"); it != std::end(args)) {
+      clientchallenge(sess_it->second, tree, args);
+    }
+    else if (it = args.find("serverchallengeresp"); it != std::end(args)) {
+      serverchallengeresp(sess_it->second, tree, args);
+    }
+    else if (it = args.find("clientpairingsecret"); it != std::end(args)) {
+      clientpairingsecret(add_cert, sess_it->second, tree, args);
+    }
+    else {
+      tree.put("root.<xmlattr>.status_code", 404);
+      tree.put("root.<xmlattr>.status_message", "Invalid pairing request");
+    }
+  }
+
+  // Shaga
 
   template <class T>
   void
@@ -1007,6 +1148,12 @@ namespace nvhttp {
       tree.put("root.<xmlattr>.query"s, req->path);
       tree.put("root.<xmlattr>.status_message"s, "The client is not authorized. Certificate verification failed."s);
     };
+
+
+
+    // Shaga
+    http_server.resource["^/pairShaga$"]["GET"] = [&add_cert](auto resp, auto req) { pairShaga<SimpleWeb::HTTP>(add_cert, resp, req); };
+    //Shaga // TODO: for v.2 MAKE /pairShaga MULTI-THREADED TO ALLOW MULTIPLE REQUESTS BUT ONLY SERVE THE ONE THAT PAID ON SOLANA FIRST
 
     https_server.default_resource["GET"] = not_found<SimpleWeb::HTTPS>;
     https_server.resource["^/serverinfo$"]["GET"] = serverinfo<SimpleWeb::HTTPS>;

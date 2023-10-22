@@ -56,7 +56,7 @@ dnf -y install \
   numactl-devel \
   openssl-devel \
   opus-devel \
-  pulseaudio-libs-devel \
+  pulseaudio-compiled javascript-devel \
   rpm-build \
   wget \
   which
