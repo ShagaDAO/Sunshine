@@ -25,6 +25,7 @@
 #include <boost/bind/bind.hpp>
 
 
+#include <string>
 
 // local includes
 #include "config.h"
@@ -36,6 +37,7 @@
 #include "platform/common.h"
 #include "process.h"
 #include "rtsp.h"
+#include "system_tray.h"
 #include "utility.h"
 #include "uuid.h"
 #include "video.h"
@@ -126,15 +128,6 @@ namespace nvhttp {
   using https_server_t = SunshineHttpsServer;
   using http_server_t = SimpleWeb::Server<SimpleWeb::HTTP>;
 
-  /* TODO: improve code, shipping too fast for the hackathon = shitty code // Shaga
-  std::mutex session_mutex;
-  std::mutex connection_mutex;  // Mutex for thread safety
-  using WebSocketConnection = std::shared_ptr<boost::beast::websocket::stream<boost::asio::ip::tcp::socket>>;
-  WebSocketConnection serverToFrontendConnection;  // Single WebSocket connection for backend-frontend communication
-  // Assume you have a global io_context object
-  boost::asio::io_context io_context;
-  */
-
   struct conf_intern_t {
     std::string servercert;
     std::string pkey;
@@ -166,42 +159,6 @@ namespace nvhttp {
     } async_insert_pin;
   };
 
-  // TODO: Use something like this to enable multiple session requests by serving the first to pay on solana// Shaga
-  /*
-    struct pair_shaga_session_t {
-    struct {
-      std::string uniqueID;
-      std::string cert;
-    } client;
-
-    std::unique_ptr<crypto::aes_t> cipher_key;
-    std::vector<uint8_t> clienthash;
-
-    std::string serversecret;
-    std::string serverchallenge;
-
-    struct {
-      util::Either<
-        std::shared_ptr<typename SimpleWeb::ServerBase<SimpleWeb::HTTP>::Response>,
-        std::shared_ptr<typename SimpleWeb::ServerBase<SimpleWeb::HTTPS>::Response>>
-        response;
-      std::string salt;
-    } async_insert_pin;
-
-    std::string encryptedPin;
-    std::string publicKey;
-    bool isPinDecrypted = false;
-    std::string decryptedPin;
-    std::chrono::time_point<std::chrono::system_clock> lastUpdated;
-    bool locked;
-  };
-
-   std::unordered_map<std::string, pair_shaga_session_t> map_id_shaga_sess;
-   //std::priority_queue; TODO: maybe if shaga gets big we need priority queues for highly dense areas
-  */
-
-
-  // Shaga
   // uniqueID, session
   std::unordered_map<std::string, pair_session_t> map_id_sess;
   std::unordered_map<std::string, client_t> map_id_client;
@@ -218,9 +175,13 @@ namespace nvhttp {
   };
 
   std::string
-  get_arg(const args_t &args, const char *name) {
+  get_arg(const args_t &args, const char *name, const char *default_value = nullptr) {
     auto it = args.find(name);
     if (it == std::end(args)) {
+      if (default_value != NULL) {
+        return std::string(default_value);
+      }
+
       throw std::out_of_range(name);
     }
     return it->second;
@@ -333,12 +294,28 @@ namespace nvhttp {
 
     launch_session.host_audio = host_audio;
     launch_session.gcm_key = util::from_hex<crypto::aes_t>(get_arg(args, "rikey"), true);
+    std::stringstream mode = std::stringstream(get_arg(args, "mode", "0x0x0"));
+    // Split mode by the char "x", to populate width/height/fps
+    int x = 0;
+    std::string segment;
+    while (std::getline(mode, segment, 'x')) {
+      if (x == 0) launch_session.width = atoi(segment.c_str());
+      if (x == 1) launch_session.height = atoi(segment.c_str());
+      if (x == 2) launch_session.fps = atoi(segment.c_str());
+      x++;
+    }
+    launch_session.unique_id = (get_arg(args, "uniqueid", "unknown"));
+    launch_session.appid = util::from_view(get_arg(args, "appid", "unknown"));
+    launch_session.enable_sops = util::from_view(get_arg(args, "sops", "0"));
+    launch_session.surround_info = util::from_view(get_arg(args, "surroundAudioInfo", "196610"));
+    launch_session.gcmap = util::from_view(get_arg(args, "gcmap", "0"));
+    launch_session.enable_hdr = util::from_view(get_arg(args, "hdrMode", "0"));
+
     uint32_t prepend_iv = util::endian::big<uint32_t>(util::from_view(get_arg(args, "rikeyid")));
     auto prepend_iv_p = (uint8_t *) &prepend_iv;
 
     auto next = std::copy(prepend_iv_p, prepend_iv_p + sizeof(prepend_iv), std::begin(launch_session.iv));
     std::fill(next, std::end(launch_session.iv), 0);
-
     return launch_session;
   }
 
@@ -362,7 +339,6 @@ namespace nvhttp {
     tree.put("root.plaincert", util::hex_vec(conf_intern.servercert, true));
     tree.put("root.<xmlattr>.status_code", 200);
   }
-
   void
   serverchallengeresp(pair_session_t &sess, pt::ptree &tree, const args_t &args) {
     auto encrypted_response = util::from_hex_vec(get_arg(args, "serverchallengeresp"), true);
@@ -672,7 +648,6 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
         auto ptr = map_id_sess.emplace(sess.client.uniqueID, std::move(sess)).first;
 
         ptr->second.async_insert_pin.salt = std::move(get_arg(args, "salt"));
-
         if (config::sunshine.flags[config::flag::PIN_STDIN]) {
           std::string pin;
 
@@ -682,6 +657,9 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
           getservercert(ptr->second, tree, pin);
         }
         else {
+#if defined SUNSHINE_TRAY && SUNSHINE_TRAY >= 1
+          system_tray::update_tray_require_pin();
+#endif
           ptr->second.async_insert_pin.response = std::move(response);
 
           fg.disable();
@@ -751,32 +729,6 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
 
   template <class T>
   void
-  pin(std::shared_ptr<typename SimpleWeb::ServerBase<T>::Response> response, std::shared_ptr<typename SimpleWeb::ServerBase<T>::Request> request) {
-    print_req<T>(request);
-
-    response->close_connection_after_response = true;
-
-    auto address = request->remote_endpoint().address().to_string();
-    auto ip_type = net::from_address(address);
-    if (ip_type > http::origin_pin_allowed) {
-      BOOST_LOG(info) << "/pin: ["sv << address << "] -- denied"sv;
-
-      response->write(SimpleWeb::StatusCode::client_error_forbidden);
-
-      return;
-    }
-
-    bool pinResponse = pin(request->path_match[1]);
-    if (pinResponse) {
-      response->write(SimpleWeb::StatusCode::success_ok);
-    }
-    else {
-      response->write(SimpleWeb::StatusCode::client_error_im_a_teapot);
-    }
-  }
-
-  template <class T>
-  void
   serverinfo(std::shared_ptr<typename SimpleWeb::ServerBase<T>::Response> response, std::shared_ptr<typename SimpleWeb::ServerBase<T>::Request> request) {
     print_req<T>(request);
 
@@ -804,19 +756,39 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
     tree.put("root.uniqueid", http::unique_id);
     tree.put("root.HttpsPort", map_port(PORT_HTTPS));
     tree.put("root.ExternalPort", map_port(PORT_HTTP));
-    tree.put("root.mac", platf::get_mac_address(local_endpoint.address().to_string()));
+    tree.put("root.mac", platf::get_mac_address(net::addr_to_normalized_string(local_endpoint.address())));
     tree.put("root.MaxLumaPixelsHEVC", video::active_hevc_mode > 1 ? "1869449984" : "0");
-    tree.put("root.LocalIP", local_endpoint.address().to_string());
 
-    if (video::active_hevc_mode == 3) {
-      tree.put("root.ServerCodecModeSupport", "3843");
-    }
-    else if (video::active_hevc_mode == 2) {
-      tree.put("root.ServerCodecModeSupport", "259");
+    // Moonlight clients track LAN IPv6 addresses separately from LocalIP which is expected to
+    // always be an IPv4 address. If we return that same IPv6 address here, it will clobber the
+    // stored LAN IPv4 address. To avoid this, we need to return an IPv4 address in this field
+    // when we get a request over IPv6.
+    //
+    // HACK: We should return the IPv4 address of local interface here, but we don't currently
+    // have that implemented. For now, we will emulate the behavior of GFE+GS-IPv6-Forwarder,
+    // which returns 127.0.0.1 as LocalIP for IPv6 connections. Moonlight clients with IPv6
+    // support know to ignore this bogus address.
+    if (local_endpoint.address().is_v6() && !local_endpoint.address().to_v6().is_v4_mapped()) {
+      tree.put("root.LocalIP", "127.0.0.1");
     }
     else {
-      tree.put("root.ServerCodecModeSupport", "3");
+      tree.put("root.LocalIP", net::addr_to_normalized_string(local_endpoint.address()));
     }
+
+    uint32_t codec_mode_flags = SCM_H264;
+    if (video::active_hevc_mode >= 2) {
+      codec_mode_flags |= SCM_HEVC;
+    }
+    if (video::active_hevc_mode >= 3) {
+      codec_mode_flags |= SCM_HEVC_MAIN10;
+    }
+    if (video::active_av1_mode >= 2) {
+      codec_mode_flags |= SCM_AV1_MAIN8;
+    }
+    if (video::active_av1_mode >= 3) {
+      codec_mode_flags |= SCM_AV1_MAIN10;
+    }
+    tree.put("root.ServerCodecModeSupport", codec_mode_flags);
 
     pt::ptree display_nodes;
     for (auto &resolution : config::nvhttp.resolutions) {
@@ -943,8 +915,11 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
       }
     }
 
+    host_audio = util::from_view(get_arg(args, "localAudioPlayMode"));
+    auto launch_session = make_launch_session(host_audio, args);
+
     if (appid > 0) {
-      auto err = proc::proc.execute(appid);
+      auto err = proc::proc.execute(appid, launch_session);
       if (err) {
         tree.put("root.<xmlattr>.status_code", err);
         tree.put("root.<xmlattr>.status_message", "Failed to start the specified application");
@@ -954,11 +929,10 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
       }
     }
 
-    host_audio = util::from_view(get_arg(args, "localAudioPlayMode"));
-    rtsp_stream::launch_session_raise(make_launch_session(host_audio, args));
+    rtsp_stream::launch_session_raise(launch_session);
 
     tree.put("root.<xmlattr>.status_code", 200);
-    tree.put("root.sessionUrl0", "rtsp://"s + request->local_endpoint().address().to_string() + ':' + std::to_string(map_port(rtsp_stream::RTSP_SETUP_PORT)));
+    tree.put("root.sessionUrl0", "rtsp://"s + net::addr_to_url_escaped_string(request->local_endpoint().address()) + ':' + std::to_string(map_port(rtsp_stream::RTSP_SETUP_PORT)));
     tree.put("root.gamesession", 1);
   }
 
@@ -1029,7 +1003,7 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
     rtsp_stream::launch_session_raise(make_launch_session(host_audio, args));
 
     tree.put("root.<xmlattr>.status_code", 200);
-    tree.put("root.sessionUrl0", "rtsp://"s + request->local_endpoint().address().to_string() + ':' + std::to_string(map_port(rtsp_stream::RTSP_SETUP_PORT)));
+    tree.put("root.sessionUrl0", "rtsp://"s + net::addr_to_url_escaped_string(request->local_endpoint().address()) + ':' + std::to_string(map_port(rtsp_stream::RTSP_SETUP_PORT)));
     tree.put("root.resume", 1);
   }
 
@@ -1092,6 +1066,7 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
 
     auto port_http = map_port(PORT_HTTP);
     auto port_https = map_port(PORT_HTTPS);
+    auto address_family = net::af_from_enum_string(config::sunshine.address_family);
 
     bool clean_slate = config::sunshine.flags[config::flag::FRESH_STATE];
 
@@ -1185,21 +1160,19 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
     https_server.resource["^/applist$"]["GET"] = applist;
     https_server.resource["^/appasset$"]["GET"] = appasset;
     https_server.resource["^/launch$"]["GET"] = [&host_audio](auto resp, auto req) { launch(host_audio, resp, req); };
-    https_server.resource["^/pin/([0-9]+)$"]["GET"] = pin<SimpleWeb::HTTPS>;
     https_server.resource["^/resume$"]["GET"] = [&host_audio](auto resp, auto req) { resume(host_audio, resp, req); };
     https_server.resource["^/cancel$"]["GET"] = cancel;
 
     https_server.config.reuse_address = true;
-    https_server.config.address = "0.0.0.0"s;
+    https_server.config.address = net::af_to_any_address_string(address_family);
     https_server.config.port = port_https;
 
     http_server.default_resource["GET"] = not_found<SimpleWeb::HTTP>;
     http_server.resource["^/serverinfo$"]["GET"] = serverinfo<SimpleWeb::HTTP>;
     http_server.resource["^/pair$"]["GET"] = [&add_cert](auto resp, auto req) { pair<SimpleWeb::HTTP>(add_cert, resp, req); };
-    http_server.resource["^/pin/([0-9]+)$"]["GET"] = pin<SimpleWeb::HTTP>;
 
     http_server.config.reuse_address = true;
-    http_server.config.address = "0.0.0.0"s;
+    http_server.config.address = net::af_to_any_address_string(address_family);
     http_server.config.port = port_http;
 
     auto accept_and_run = [&](auto *http_server) {
@@ -1228,12 +1201,6 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
 
     ssl.join();
     tcp.join();
-
-    /* // Shaga webSocket setup
-    std::thread io_thread([&]() {
-      io_context.run();
-    });
-    */
   }
 
   /**
