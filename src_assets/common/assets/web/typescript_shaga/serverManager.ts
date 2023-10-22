@@ -8,11 +8,11 @@ export const SOLANA_NETWORK = 'https://api.devnet.solana.com'; // Replace with t
 export let connection = new Connection(SOLANA_NETWORK);
 
 
-import { SystemInfo } from './shagaUIManager';
 import { EncryptResult } from "./encryptionManager";
 import bs58 from "bs58";
 import { decryptPINAndVerifyPayment } from "./decryptShagaPin";
 import { checkRentalState } from "./shagaTransactions";
+import { SystemInfo } from "./initializeAffair";
 
 interface PinResponse {
   encryptedPin?: string;

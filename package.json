@@ -6,7 +6,7 @@
   "dependencies": {
     "@babel/runtime": "^7.22.15",
     "@dao-xyz/borsh": "^5.1.8",
-    "@fortawesome/fontawesome-free": "6.4.0",
+    "@fortawesome/fontawesome-free": "6.4.2",
     "@metaplex-foundation/beet": "^0.7.1",
     "@metaplex-foundation/beet-solana": "^0.4.0",
     "@noble/curves": "^1.2.0",
@@ -74,8 +74,5 @@
     "ts-loader": "^9.4.4",
     "webpack": "^5.88.2",
     "webpack-cli": "^5.1.4"
-    "@fortawesome/fontawesome-free": "6.4.2",
-    "bootstrap": "5.3.2",
-    "vue": "2.6.12"
   }
 }

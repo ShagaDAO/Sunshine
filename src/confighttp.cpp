@@ -897,12 +897,13 @@ namespace confighttp {
       // Create a property tree object
       pt::ptree pt;
 
-      // Populate the property tree with payload data
+      // Populate the property tree with payload
+      pt.put("coordinates", payload.coordinates);
       pt.put("ipAddress", payload.ipAddress);
       pt.put("cpuName", payload.cpuName);
       pt.put("gpuName", payload.gpuName);
       pt.put("totalRamMB", payload.totalRamMB);
-      // TODO: more info ca be added
+      // TODO: more info can be added
 
       // Serialize the property tree to a JSON string
       std::ostringstream buf;

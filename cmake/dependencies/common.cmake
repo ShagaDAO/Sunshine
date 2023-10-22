@@ -16,6 +16,8 @@ set(UPNPC_BUILD_SAMPLE OFF CACHE BOOL "Don't build samples for miniupnpc")
 set(UPNPC_NO_INSTALL ON CACHE BOOL "Don't install any libraries build for miniupnpc")
 add_subdirectory(third-party/miniupnp/miniupnpc)
 include_directories(SYSTEM third-party/miniupnp/miniupnpc/include)
+#Shaga
+include_directories(${CMAKE_SOURCE_DIR}/third-party/nlohmann)
 
 # ffmpeg pre-compiled binaries
 if(WIN32)

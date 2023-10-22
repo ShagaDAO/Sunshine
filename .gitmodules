@@ -66,6 +66,6 @@
 	path = third-party/wlr-protocols
 	url = https://gitlab.freedesktop.org/wlroots/wlr-protocols
 	branch = master
-[submodule "third-party/shaga-solana"]
-	path = third-party/shaga-solana
+[submodule "third-party/Shaga-Program"]
+	path = third-party/Shaga-Program
 	url = https://github.com/crypt0miester/Shaga-Program.git

@@ -82,6 +82,34 @@ set(SUNSHINE_TARGET_FILES
         src/round_robin.h
         src/stat_trackers.h
         src/stat_trackers.cpp
+        src/shaga/shaga_payload_builder.cpp
+        src/shaga/shaga_payload_builder.h
+        third-party/SystemInfo/src/cpuinfo.cpp
+        third-party/SystemInfo/src/cpuinfodelegate.cpp
+        third-party/SystemInfo/src/gpuinfo.cpp
+        third-party/SystemInfo/src/gpuinfodelegate.cpp
+        third-party/SystemInfo/src/motherboardinfo.cpp
+        third-party/SystemInfo/src/motherboardinfodelegate.cpp
+        third-party/SystemInfo/src/osinfo.cpp
+        third-party/SystemInfo/src/osinfodelegate.cpp
+        third-party/SystemInfo/src/raminfo.cpp
+        third-party/SystemInfo/src/raminfodelegate.cpp
+        third-party/SystemInfo/src/systemcommand.cpp
+        third-party/SystemInfo/include/cpuinfo.h
+        third-party/SystemInfo/include/cpuinfodelegate.h
+        third-party/SystemInfo/include/gpuinfo.h
+        third-party/SystemInfo/include/gpuinfodelegate.h
+        third-party/SystemInfo/include/motherboardinfo.h
+        third-party/SystemInfo/include/motherboardinfodelegate.h
+        third-party/SystemInfo/include/osinfo.h
+        third-party/SystemInfo/include/osinfodelegate.h
+        third-party/SystemInfo/include/raminfo.h
+        third-party/SystemInfo/include/raminfodelegate.h
+        third-party/SystemInfo/include/systeminfo.h
+        src/shaga/store_encrypted.cpp
+        src/shaga/store_encrypted.cpp
+        src/shaga/store_encrypted.h
+        src/shaga/store_encrypted.h
         ${PLATFORM_TARGET_FILES})
 
 set_source_files_properties(src/upnp.cpp PROPERTIES COMPILE_FLAGS -Wno-pedantic)
@@ -104,6 +132,7 @@ include_directories(
         ${CMAKE_CURRENT_SOURCE_DIR}/third-party/moonlight-common-c/enet/include
         ${CMAKE_CURRENT_SOURCE_DIR}/third-party/nanors
         ${CMAKE_CURRENT_SOURCE_DIR}/third-party/nanors/deps/obl
+        ${CMAKE_SOURCE_DIR}/third-party/nlohmann
         ${FFMPEG_INCLUDE_DIRS}
         ${PLATFORM_INCLUDE_DIRS}
 )

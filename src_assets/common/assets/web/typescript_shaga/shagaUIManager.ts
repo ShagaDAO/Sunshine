@@ -12,12 +12,6 @@ import * as QRCode from 'qrcode';
 (window as any).Buffer = (window as any).Buffer || require('buffer').Buffer;
 
 export const messageDisplay = document.getElementById('messageDisplay') as HTMLElement;
-export interface SystemInfo {
-  ipAddress: string;
-  cpuName: string;
-  gpuName: string;
-  totalRamMB: number;
-}
 
 let qrCodeDisplayed = false;
 
