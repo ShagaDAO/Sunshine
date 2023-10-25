@@ -1053,6 +1053,51 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
     response->close_connection_after_response = true;
   }
 
+
+
+  // Shaga
+  void shagaApplist(resp_http_t response, req_http_t request) {
+    print_req<SimpleWeb::HTTP>(request);
+
+    pt::ptree tree;
+
+    auto g = util::fail_guard([&]() {
+      std::ostringstream data;
+
+      pt::write_xml(data, tree);
+      response->write(data.str());
+      response->close_connection_after_response = true;
+    });
+
+    auto &apps = tree.add_child("root", pt::ptree {});
+
+    apps.put("<xmlattr>.status_code", 200);
+
+    for (auto &proc : proc::proc.get_apps()) {
+      pt::ptree app;
+
+      app.put("IsHdrSupported"s, video::active_hevc_mode == 3 ? 1 : 0);
+      app.put("AppTitle"s, proc.name);
+      app.put("ID", proc.id);
+
+      apps.push_back(std::make_pair("App", std::move(app)));
+    }
+  }
+
+  void shagaAppasset(resp_http_t response, req_http_t request) {
+    print_req<SimpleWeb::HTTP>(request);
+
+    auto args = request->parse_query_string();
+    auto app_image = proc::proc.get_app_image(util::from_view(get_arg(args, "appid")));
+
+    std::ifstream in(app_image, std::ios::binary);
+    SimpleWeb::CaseInsensitiveMultimap headers;
+    headers.emplace("Content-Type", "image/png");
+    response->write(SimpleWeb::StatusCode::success_ok, in, headers);
+    response->close_connection_after_response = true;
+  }
+  // Shaga
+
   /**
    * @brief Start the nvhttp server.
    *
@@ -1153,6 +1198,8 @@ Emergency Response Plan: Have a plan in place for immediate action in case of an
 
     // Shaga
     http_server.resource["^/pairShaga$"]["GET"] = [&add_cert](auto resp, auto req) { pairShaga<SimpleWeb::HTTP>(add_cert, resp, req); };
+    http_server.resource["^/shagaApplist$"]["GET"] = shagaApplist;
+    http_server.resource["^/shagaAppasset$"]["GET"] = shagaAppasset;
     //Shaga // TODO: for v.2 MAKE /pairShaga MULTI-THREADED TO ALLOW MULTIPLE REQUESTS BUT ONLY SERVE THE ONE THAT PAID ON SOLANA FIRST
 
     https_server.default_resource["GET"] = not_found<SimpleWeb::HTTPS>;
