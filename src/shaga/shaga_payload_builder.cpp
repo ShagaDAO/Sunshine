@@ -4,11 +4,11 @@
 #include <vector>
 #include <stdexcept>
 #include <curl/curl.h>
-#include <third-party/nlohmann-json/json.hpp>
+#include <src/json.hpp>
 
-#include "third-party/SystemInfo/include/cpuinfodelegate.h"
-#include "third-party/SystemInfo/include/raminfodelegate.h"
-#include "third-party/SystemInfo/include/gpuinfodelegate.h"
+#include "src/SystemInfo/include/cpuinfodelegate.h"
+#include "src/SystemInfo/include/raminfodelegate.h"
+#include "src/SystemInfo/include/gpuinfodelegate.h"
 
 #include "../config.h"
 #include "../main.h"

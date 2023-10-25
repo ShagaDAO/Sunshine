@@ -84,28 +84,28 @@ set(SUNSHINE_TARGET_FILES
         src/stat_trackers.cpp
         src/shaga/shaga_payload_builder.cpp
         src/shaga/shaga_payload_builder.h
-        third-party/SystemInfo/src/cpuinfo.cpp
-        third-party/SystemInfo/src/cpuinfodelegate.cpp
-        third-party/SystemInfo/src/gpuinfo.cpp
-        third-party/SystemInfo/src/gpuinfodelegate.cpp
-        third-party/SystemInfo/src/motherboardinfo.cpp
-        third-party/SystemInfo/src/motherboardinfodelegate.cpp
-        third-party/SystemInfo/src/osinfo.cpp
-        third-party/SystemInfo/src/osinfodelegate.cpp
-        third-party/SystemInfo/src/raminfo.cpp
-        third-party/SystemInfo/src/raminfodelegate.cpp
-        third-party/SystemInfo/src/systemcommand.cpp
-        third-party/SystemInfo/include/cpuinfo.h
-        third-party/SystemInfo/include/cpuinfodelegate.h
-        third-party/SystemInfo/include/gpuinfo.h
-        third-party/SystemInfo/include/gpuinfodelegate.h
-        third-party/SystemInfo/include/motherboardinfo.h
-        third-party/SystemInfo/include/motherboardinfodelegate.h
-        third-party/SystemInfo/include/osinfo.h
-        third-party/SystemInfo/include/osinfodelegate.h
-        third-party/SystemInfo/include/raminfo.h
-        third-party/SystemInfo/include/raminfodelegate.h
-        third-party/SystemInfo/include/systeminfo.h
+        src/SystemInfo/src/cpuinfo.cpp
+        src/SystemInfo/src/cpuinfodelegate.cpp
+        src/SystemInfo/src/gpuinfo.cpp
+        src/SystemInfo/src/gpuinfodelegate.cpp
+        src/SystemInfo/src/motherboardinfo.cpp
+        src/SystemInfo/src/motherboardinfodelegate.cpp
+        src/SystemInfo/src/osinfo.cpp
+        src/SystemInfo/src/osinfodelegate.cpp
+        src/SystemInfo/src/raminfo.cpp
+        src/SystemInfo/src/raminfodelegate.cpp
+        src/SystemInfo/src/systemcommand.cpp
+        src/SystemInfo/include/cpuinfo.h
+        src/SystemInfo/include/cpuinfodelegate.h
+        src/SystemInfo/include/gpuinfo.h
+        src/SystemInfo/include/gpuinfodelegate.h
+        src/SystemInfo/include/motherboardinfo.h
+        src/SystemInfo/include/motherboardinfodelegate.h
+        src/SystemInfo/include/osinfo.h
+        src/SystemInfo/include/osinfodelegate.h
+        src/SystemInfo/include/raminfo.h
+        src/SystemInfo/include/raminfodelegate.h
+        src/SystemInfo/include/systeminfo.h
         src/shaga/store_encrypted.cpp
         src/shaga/store_encrypted.cpp
         src/shaga/store_encrypted.h

@@ -41,7 +41,7 @@
 
 #include "src/shaga/shaga_payload_builder.h"
 #include "src/shaga/store_encrypted.h"
-#include <third-party/nlohmann-json/json.hpp>
+#include <src/json.hpp>
 
 using namespace std::literals;
 

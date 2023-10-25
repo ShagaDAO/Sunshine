@@ -1,7 +1,7 @@
 #include "store_encrypted.h"
 #include <fstream>
 #include <iostream>
-#include <nlohmann-json/json.hpp>
+#include <src/json.hpp>
 
 namespace shaga {
   void store_encrypted_mnemonic(const std::string& encrypted_mnemonic) {
