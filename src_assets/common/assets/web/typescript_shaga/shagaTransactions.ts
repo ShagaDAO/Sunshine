@@ -53,7 +53,7 @@ function validateAffairPayload(payload: AffairPayload): boolean {
   const ipSegments = payload.ipAddress.split('.');
   const validIp = ipSegments.length === 4 && ipSegments.every(segment => {
     const num = Number(segment);
-    return !isNaN(num) && num < 255;
+    return !isNaN(num) && num <= 255;
   });
   // Validate totalRamMb (Minimum 3GB = 3072MB or 4GB = 4096MB)
   const validRam = payload.totalRamMb >= 3072; // Replace 3072 with 4096 for at least 4GB
@@ -66,15 +66,15 @@ function validateAffairPayload(payload: AffairPayload): boolean {
   // Combine all validations including the new coordinates validation
   const isValid = validIp && validRam && validCpuName && validGpuName && validSolPerHour && validAffairTerminationTime && validCoordinates;
   // Debug Outputs
-  console.debug('Is IP valid:', validIp);
-  console.debug('Is RAM valid:', validRam);
-  console.debug('Is CPU name valid:', validCpuName);
-  console.debug('Is GPU name valid:', validGpuName);
-  console.debug('Is Sol per hour valid:', validSolPerHour);
-  console.debug('Is Affair termination time valid:', validAffairTerminationTime);
-  console.debug('Is payload valid:', isValid);
-  console.debug('Is Coordinates valid:', validCoordinates);
-  console.debug('Is payload valid:', isValid);
+  console.log('Is IP valid:', validIp);
+  console.log('Is RAM valid:', validRam);
+  console.log('Is CPU name valid:', validCpuName);
+  console.log('Is GPU name valid:', validGpuName);
+  console.log('Is Sol per hour valid:', validSolPerHour);
+  console.log('Is Affair termination time valid:', validAffairTerminationTime);
+  console.log('Is payload valid:', isValid);
+  console.log('Is Coordinates valid:', validCoordinates);
+  console.log('Is payload valid:', isValid);
 
   return isValid;
 }
