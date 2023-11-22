@@ -5,7 +5,7 @@ import bs58 from 'bs58';
 import { sharedState } from './sharedState';
 import { PublicKey } from "@solana/web3.js";
 import { connection, ServerManager } from "./serverManager";
-import { Affair, AffairState } from "../../../../../third-party/shaga-program/app/shaga_joe/src/generated";
+import { Affair, AffairState } from "../../../../../third-party/Shaga-Program/app/shaga/src/generated";
 
 
 // Parameters for retry delay & timeout

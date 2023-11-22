@@ -70,7 +70,7 @@ export async function startAffair() {
     console.log("Lender has been initialized or already exists");
   }
 
-// Now you have the shared keypair, let's check if an affair already exists
+  // Now you have the shared keypair, let's check if an affair already exists
   if (sharedState.sharedKeypair) {
     const accountInfo = await checkIfAffairExists(); // Updated function that returns AccountInfo<Buffer> | null
     if (accountInfo !== null) { // Checking if affair exists
@@ -102,6 +102,8 @@ export async function startAffair() {
     let parsedSolPerHourInLamports = 0;
     let parsedLendingDuration = NaN;
     let isSystemInfoValid = false;
+    let isPrivate;
+    let password = "";
     // Password Verification Loop
     while (!isVerified) {
       try {
@@ -183,13 +185,13 @@ export async function startAffair() {
     const affairTerminationTime = currentTime + (parsedLendingDuration * 3600);
     // Prepare payload
     if (systemInfo !== null) {
-    const payload = {
-      systemInfo,
-      solPerHour: parsedSolPerHourInLamports,
-      affairTerminationTime
-    };
-    console.log(`Calculated affair termination time: ${affairTerminationTime}`);
-    // Create session account on Solana & save sessionAccountPublicKey in sharedState for future use
+      const payload = {
+        systemInfo,
+        solPerHour: parsedSolPerHourInLamports,
+        affairTerminationTime
+      };
+      console.log(`Calculated affair termination time: ${affairTerminationTime}`);
+      // Create session account on Solana & save sessionAccountPublicKey in sharedState for future use
       if (sharedState.sharedKeypair) {
         try {
           await createShagaAffair(payload, sharedState.sharedKeypair);

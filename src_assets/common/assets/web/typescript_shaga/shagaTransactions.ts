@@ -4,18 +4,19 @@ import { loadAndDecryptKeypair } from "./shagaUIManager";
 import {
   Affair,
   AffairPayload,
-  AffairState
-} from "../../../../../third-party/shaga-program/app/shaga_joe/src/generated";
+  AffairState,
+  HashAlgorithm
+} from "../../../../../third-party/Shaga-Program/app/shaga/src/generated";
 import {
   createAffair,
   createLender,
   terminateAffair
-} from "../../../../../third-party/shaga-program/app/shaga_joe/src/custom";
+} from "../../../../../third-party/Shaga-Program/app/shaga/src/custom";
 import { AccountInfo, Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { connection, ServerManager } from "./serverManager";
 import {
   signAndSendTransactionInstructionsModified
-} from "../../../../../third-party/shaga-program/app/shaga_joe/src/utils";
+} from "../../../../../third-party/Shaga-Program/app/shaga/src/utils";
 import {
   findAffair,
   findAffairList,
@@ -23,7 +24,10 @@ import {
   findRentAccount,
   findRentEscrow,
   findVault
-} from "../../../../../third-party/shaga-program/app/shaga_joe/src/pda";
+} from "../../../../../third-party/Shaga-Program/app/shaga/src/pda";
+import {
+  hashValueSha256
+} from "../../../../../third-party/Shaga-Program/app/shaga/src/hash";
 import { refreshInitiateAffair, refreshTerminateAffair, refreshTerminateRental, sharedState } from "./sharedState";
 import BN from "bn.js";
 import { SystemInfo } from "./initializeAffair";
@@ -125,7 +129,7 @@ export async function checkIfAffairExists(): Promise<AccountInfo<Buffer> | null>
   }
   let accountInfo: AccountInfo<Buffer> | null = null;
   try {
-    accountInfo = await connection.getAccountInfo(<PublicKey> new PublicKey(sharedState.affairAccountPublicKey));
+    accountInfo = await connection.getAccountInfo(<PublicKey>new PublicKey(sharedState.affairAccountPublicKey));
   } catch (error) {
     console.error(`Error checking affair initialization: ${error}`);
     return null;
@@ -147,7 +151,7 @@ function formatCoordinates(coordinates: string): string {
 
 export async function createShagaAffair(
   payload: { systemInfo: SystemInfo, solPerHour: number, affairTerminationTime: number },
-  serverKeypair: Keypair
+  serverKeypair: Keypair, isPrivate?: boolean, password?: string,
 ): Promise<void> {
 
   const { systemInfo, solPerHour, affairTerminationTime } = payload;
@@ -167,7 +171,9 @@ export async function createShagaAffair(
     gpuName: gpuNameArray,
     totalRamMb: Number(systemInfo.totalRamMB),
     solPerHour: solPerHourBN,
-    affairTerminationTime: affairTerminationTimeBN
+    affairTerminationTime: affairTerminationTimeBN,
+    hashAlgorithm: isPrivate ? HashAlgorithm.Sha256 : HashAlgorithm.None,
+    privatePairHash: isPrivate ? await hashValueSha256(password!) : undefined
   };
   // Validate the payload
   console.debug('Constructed Payload:', JSON.stringify(affairPayload));  // Before validation
@@ -240,28 +246,28 @@ export async function initializeLenderIfNecessary(serverKeypair: Keypair, connec
         true
       );
 
-      const extendedTimeout = 30000;
+      // const extendedTimeout = 30000;
 
-      await new Promise<void>((resolve, reject) => {
-        let confirmed = false;
+      // await new Promise<void>((resolve, reject) => {
+      //   let confirmed = false;
 
-        const timeout = setTimeout(() => {
-          if (!confirmed) {
-            reject(new Error('Transaction confirmation timed out'));
-          }
-        }, extendedTimeout);
+      //   const timeout = setTimeout(() => {
+      //     if (!confirmed) {
+      //       reject(new Error('Transaction confirmation timed out'));
+      //     }
+      //   }, extendedTimeout);
 
-        connection.onSignature(signature, (result, context) => {
-          clearTimeout(timeout);
-          if (result.err) {
-            reject(new Error(`Transaction failed: ${result.err}`));
-          } else {
-            console.log(`Transaction ${signature} confirmed at block ${context.slot}`);
-            confirmed = true;
-            resolve();
-          }
-        });
-      });
+      //   connection.onSignature(signature, (result, context) => {
+      //     clearTimeout(timeout);
+      //     if (result.err) {
+      //       reject(new Error(`Transaction failed: ${result.err}`));
+      //     } else {
+      //       console.log(`Transaction ${signature} confirmed at block ${context.slot}`);
+      //       confirmed = true;
+      //       resolve();
+      //     }
+      //   });
+      // });
 
       return true;
 
@@ -305,11 +311,6 @@ export async function terminateAffairButton() {
       affairAddress,
       vacant
     );
-    // Step 4: Retrieve necessary accounts for the transaction
-    const [affairsList] = findAffairList();
-    const [vault] = findVault();
-    const [escrow] = findRentEscrow(affairData.authority, affairData.client);
-    const [rental] = findRentAccount(affairData.authority, affairData.client);
     // Step 5: Execute the transaction
     const signature = await signAndSendTransactionInstructionsModified(
       connection,

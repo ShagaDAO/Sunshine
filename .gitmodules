@@ -68,4 +68,4 @@
 	branch = master
 [submodule "third-party/Shaga-Program"]
 	path = third-party/Shaga-Program
-	url = https://github.com/crypt0miester/Shaga-Program.git
+	url = https://github.com/ShagaDAO/Shaga-Program.git

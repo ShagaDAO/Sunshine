@@ -26,6 +26,18 @@ module.exports = {
           fullySpecified: false,
         },
       },
+      {
+        test: /\.ts?$/,
+        use: [
+          {
+            loader: 'ts-loader',
+            options: {
+              transpileOnly: true, // Disable type checking
+            },
+          },
+        ],
+        exclude: /node_modules/,
+      },
     ],
   },
   plugins: [
