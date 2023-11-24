@@ -172,6 +172,9 @@ export class ServerManager {
         if ('wasRentalActive' in loadedState) {
           sharedState.wasRentalActive = loadedState.wasRentalActive;
         }
+        if ('sessionPassword' in loadedState) {
+          sharedState.sessionPassword = loadedState.sessionPassword;
+        }
         console.log('Successfully loaded sharedState from the backend.');
       } else {
         console.log('Failed to load sharedState from the backend.');

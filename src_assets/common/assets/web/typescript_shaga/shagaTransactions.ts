@@ -67,8 +67,17 @@ function validateAffairPayload(payload: AffairPayload): boolean {
   const validSolPerHour = Boolean(payload.solPerHour);
   const validAffairTerminationTime = Boolean(payload.affairTerminationTime);
   const validCoordinates = validateCoordinates(payload.coordinates);
+
+  // Validate SHA-256 hash (if session is private)
+  let validHash = true;
+  if (sharedState.sessionPassword !== null && payload.privatePairHash !== null) {
+    const hashHex = Array.prototype.map.call(payload.privatePairHash, x => ('00' + x.toString(16)).slice(-2)).join('');
+    validHash = /^[a-f0-9]{64}$/i.test(hashHex);
+  }
+
   // Combine all validations including the new coordinates validation
-  const isValid = validIp && validRam && validCpuName && validGpuName && validSolPerHour && validAffairTerminationTime && validCoordinates;
+  const isValid = validIp && validRam && validCpuName && validGpuName && validSolPerHour && validAffairTerminationTime && validCoordinates && validHash;
+
   // Debug Outputs
   console.log('Is IP valid:', validIp);
   console.log('Is RAM valid:', validRam);
@@ -78,6 +87,7 @@ function validateAffairPayload(payload: AffairPayload): boolean {
   console.log('Is Affair termination time valid:', validAffairTerminationTime);
   console.log('Is payload valid:', isValid);
   console.log('Is Coordinates valid:', validCoordinates);
+  console.log('Is SHA-256 hash valid:', validHash);
   console.log('Is payload valid:', isValid);
 
   return isValid;
@@ -151,7 +161,7 @@ function formatCoordinates(coordinates: string): string {
 
 export async function createShagaAffair(
   payload: { systemInfo: SystemInfo, solPerHour: number, affairTerminationTime: number },
-  serverKeypair: Keypair, isPrivate?: boolean, password?: string,
+  serverKeypair: Keypair,
 ): Promise<void> {
 
   const { systemInfo, solPerHour, affairTerminationTime } = payload;
@@ -164,6 +174,8 @@ export async function createShagaAffair(
   const solPerHourBN = new BN(solPerHour);
   const affairTerminationTimeBN = new BN(affairTerminationTime);
 
+  const isPrivateSession = sharedState.sessionPassword !== null; // if password is null, then it's not private
+
   const affairPayload: AffairPayload = {
     coordinates: coordinates,
     ipAddress: ipAddressArray,
@@ -172,8 +184,8 @@ export async function createShagaAffair(
     totalRamMb: Number(systemInfo.totalRamMB),
     solPerHour: solPerHourBN,
     affairTerminationTime: affairTerminationTimeBN,
-    hashAlgorithm: isPrivate ? HashAlgorithm.Sha256 : HashAlgorithm.None,
-    privatePairHash: isPrivate ? await hashValueSha256(password!) : undefined
+    hashAlgorithm: isPrivateSession ? HashAlgorithm.Sha256 : HashAlgorithm.None,
+    privatePairHash: isPrivateSession ? await hashValueSha256(sharedState.sessionPassword!) : undefined
   };
   // Validate the payload
   console.debug('Constructed Payload:', JSON.stringify(affairPayload));  // Before validation
@@ -325,6 +337,9 @@ export async function terminateAffairButton() {
     // Step 6: Terminate any additional connections or threads
     await refreshTerminateAffair();
     await ServerManager.unpairAllClients() // TODO: Check if needs to also call close app or if it's automated
+
+    // Reset the session password in sharedState to null
+    sharedState.sessionPassword = null;
 
   } catch (error) {
     console.error(`Error in terminating affair: ${error}`);

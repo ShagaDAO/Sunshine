@@ -15,6 +15,17 @@ export const messageDisplay = document.getElementById('messageDisplay') as HTMLE
 
 let qrCodeDisplayed = false;
 
+//Pairing string displayer
+export async function displayPairingString(pairingString: string): Promise<void> {
+  const pairingStringElement = document.getElementById('pairingStringText') as HTMLElement;
+
+  if (!pairingStringElement) {
+    console.error('Pairing String element not found.');
+    return;
+  }
+
+  pairingStringElement.textContent = pairingString;
+}
 
 // Update UI Indicators based on sharedState
 export async function updateUIIndicators() {

@@ -14,6 +14,7 @@ export type SharedStateType = {
   affairAccountPublicKey: string | null;
   isAffairInitiated: boolean;
   wasRentalActive: boolean;
+  sessionPassword: string | null;
 };
 
 // Define the type for the part of the state that gets saved
@@ -23,6 +24,7 @@ export type SafeSharedStateType = {
   affairAccountPublicKey: string | null;
   isAffairInitiated: boolean;
   wasRentalActive: boolean;
+  sessionPassword: string | null;
 };
 
 
@@ -34,6 +36,7 @@ export const sharedState: SharedStateType = {
   affairAccountPublicKey: null,
   isAffairInitiated: false,
   wasRentalActive: false,
+  sessionPassword:  null
 };
 
 export async function refreshTerminateAffair(): Promise<void> { // TODO: v.2 has all logic directly on the C++ Backend

@@ -6,6 +6,7 @@ import { sharedState } from "./sharedState";
 import { connection, fetchSystemInfo, ServerManager } from "./serverManager";
 import { createShagaAffair, checkIfAffairExists, initializeLenderIfNecessary } from "./shagaTransactions";
 import { Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { displayPairingString } from "./shagaUIManager";
 
 
 export interface SystemInfo {
@@ -192,12 +193,29 @@ export async function startAffair() {
       };
       console.log(`Calculated affair termination time: ${affairTerminationTime}`);
       // Create session account on Solana & save sessionAccountPublicKey in sharedState for future use
+
+      // Prompt for Private Session
+      const isPrivateSession = confirm("Is this a private session? Click 'OK' for Yes or 'Cancel' for No.");
+      if (isPrivateSession) {
+        sharedState.sessionPassword = generateRandomPassword(); // Generate and store the password in sharedState
+      }
+
       if (sharedState.sharedKeypair) {
         try {
           await createShagaAffair(payload, sharedState.sharedKeypair);
           // Initiate the polling loop
           initiatePollingLoop();
           console.log('Successfully created Shaga affair.');
+
+          // Check if affairAccountPublicKey and sessionPassword are available
+          if (sharedState.affairAccountPublicKey && sharedState.sessionPassword) {
+            // Construct the pairing string
+            const pairingString = `${sharedState.affairAccountPublicKey}_${sharedState.sessionPassword}`;
+            // Display the pairing string
+            await displayPairingString(pairingString);
+          } else {
+            console.error('Affair account public key or session password is missing. Cannot create pairing string.');
+          }
         } catch (error) {
           console.error('Failed to create Shaga affair:', error);
           return;
@@ -208,6 +226,17 @@ export async function startAffair() {
       }
     }
   })();
+}
+
+function generateRandomPassword() {
+  const length = 16; // Define the length of the password
+  const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let password = "";
+  for (let i = 0; i < length; i++) {
+    const randomIndex = Math.floor(Math.random() * charset.length);
+    password += charset[randomIndex];
+  }
+  return password;
 }
 
 export async function initiatePollingLoop() {

@@ -12,31 +12,18 @@ module.exports = {
     rules: [
       {
         test: /\.m?[jt]sx?$/,
-        use: 'ts-loader',
+        use: {
+          loader: 'ts-loader',
+          options: {
+            transpileOnly: true
+          }
+        },
         exclude: /node_modules/,
       },
       {
         test: /\.m?[jt]sx?$/,
         enforce: 'pre',
         use: ['source-map-loader'],
-      },
-      {
-        test: /\.m?[jt]sx?$/,
-        resolve: {
-          fullySpecified: false,
-        },
-      },
-      {
-        test: /\.ts?$/,
-        use: [
-          {
-            loader: 'ts-loader',
-            options: {
-              transpileOnly: true, // Disable type checking
-            },
-          },
-        ],
-        exclude: /node_modules/,
       },
     ],
   },
